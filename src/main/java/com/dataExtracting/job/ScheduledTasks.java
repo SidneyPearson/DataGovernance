@@ -26,8 +26,8 @@ public class ScheduledTasks {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledTasks.class);
     
-    // 使用cron表达式，每天上午08:00执行
-    @Scheduled(cron = "0 00 08 * * ?")
+    // 使用cron表达式，每天上午07:50执行
+    @Scheduled(cron = "0 50 07 * * ?")
     public void sourceToBaseUpdateTask() {
         log.info("执行【抽取更新处理全市各区新兴领域党建数据基础信息表数据】定时任务，当前时间: {}", LocalDateTime.now());
         List<District> districtList = districtService.list();
@@ -38,7 +38,7 @@ public class ScheduledTasks {
         log.info("【抽取更新处理全市各区新兴领域党建数据基础信息表数据】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
 
         log.info("执行【推送新兴领域党建数据基础信息表数据到目标表】定时任务，当前时间: {}", LocalDateTime.now());
-        baseInfoService.baseToTarget();
+        baseInfoService.baseToDmTarget();
         log.info("【推送新兴领域党建数据基础信息表数据到目标表】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
 
@@ -53,7 +53,7 @@ public class ScheduledTasks {
         log.info("【抽取处理全市各区新兴领域党建数据走访数据表数据】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
 
         log.info("执行【推送新兴领域党建数据走访数据数据到目标表】定时任务，当前时间: {}", LocalDateTime.now());
-        zfDetailService.baseToTarget();
+        zfDetailService.baseToDmTarget();
         log.info("【推送新新兴领域党建数据走访数据到目标表】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
     

@@ -22,6 +22,10 @@ public class SqlHelper {
     private static final String TARGET_USERNAME = "swzzb_dqfwzx";
     private static final String TARGET_PASSWORD = "Swzzb_dqfwzx@2025";
     private static final String TARGET_SCHEMA = "swzzb_dqfwzx";
+    private static final String DM_TARGET_USERNAME = "Front_BIG_DATA_CENTER";
+    private static final String DM_TARGET_PASSWORD = "Speacial_Key_For_1dsjzx";
+    private static final String DM_TARGET_SCHEMA = "Front_BIG_DATA_CENTER";
+
 
 
     public List<SourceObj> getSourceInfoData(String username, String password, String schema, String todayStr) {
@@ -169,6 +173,69 @@ public class SqlHelper {
             log.warn("获取目标库连接失败", e);
         }
         return conn;
+    }
+
+
+    // 从目标库获取最后同步时间
+    public Date getLastSyncTimeFromDmTarget() {
+        String query = "SELECT MAX(jhpt_update_time) FROM dwd_dj_xxly_info";
+        try (Connection conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+            return rs.next() ? rs.getTimestamp(1) : null;
+        } catch (SQLException e) {
+            log.warn("获取目标dm库最后同步时间失败", e);
+            return null;
+        }
+    }
+
+    // 从走访达梦目标库获取最后同步时间
+    public Date getLastSyncTimeFromDmTargetDetail() {
+        String query = "SELECT MAX(jhpt_update_time) FROM dwd_dj_xxly_zf_detail";
+        try (Connection conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+            return rs.next() ? rs.getTimestamp(1) : null;
+        } catch (SQLException e) {
+            log.warn("获取目标dm库最后同步时间失败", e);
+            return null;
+        }
+    }
+
+    public Connection getDmTargetConn() {
+        Connection conn = null;
+        try {
+            conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+        } catch (SQLException e) {
+            log.warn("获取dm目标库连接失败", e);
+        }
+        return conn;
+    }
+
+    public Long getDmCount(String tableName) {
+        String query = "SELECT count(*) FROM " + tableName;
+        try (Connection conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+            if (rs.next()) {
+                return rs.getLong(1);
+            }
+            return 0L;
+        } catch (SQLException e) {
+            log.warn("获取dm目标库连接失败", e);
+            return null;
+        }
+    }
+
+    public void truncateDm(String tableName) {
+        String sql = "TRUNCATE TABLE " + tableName;
+        try (Connection conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate(sql);
+        } catch (SQLException e) {
+            log.warn("执行表截断操作失败: " + tableName, e);
+            throw new RuntimeException("执行表截断操作失败", e);
+        }
     }
 
 

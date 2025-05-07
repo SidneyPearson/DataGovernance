@@ -12,4 +12,6 @@ public interface BaseInfoService extends IService<BaseInfo> {
 
     void baseToTarget();
 
+    void baseToDmTarget();
+
 }

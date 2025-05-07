@@ -39,6 +39,9 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
 
     private final String TODAY_STR = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
     private static final Logger log = LoggerFactory.getLogger(ZfDetailServiceImpl.class);
+    private static final int BATCH_SIZE = 5000; // 每批处理5000条数据
+    private static final DateTimeFormatter DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyyMMdd");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -58,7 +61,15 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
         List<SourceDetailObj> validSources = sourceDetailObjs.stream()
                 .filter(s -> StringUtils.isNotEmpty(s.getGridCode())
                         && StringUtils.isNotEmpty(s.getVisitTime()))
-                .collect(Collectors.toList());
+                .collect(Collectors.collectingAndThen(
+                        Collectors.groupingBy(
+                                s -> s.getShopCode() + "|" + s.getVisitTime(), // 组合成唯一键
+                                Collectors.toList()
+                        ),
+                        map -> map.values().stream()
+                                .map(list -> list.get(new Random().nextInt(list.size()))) // 随机取一条
+                                .collect(Collectors.toList())
+                ));
 
         // 3. 批量转换实体
         List<ZfDetail> entities = validSources.stream()
@@ -149,10 +160,11 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
         // 查询网格信息
         CityGrid grid = cityGridMapper.selectOne(
                 new LambdaQueryWrapper<CityGrid>()
+                        .eq(CityGrid::getAreaCode, district.getCode())
                         .eq(CityGrid::getGridCode, source.getGridCode()));
 
         if (grid == null) {
-            log.info("网格编码不存在: {}", source.getGridCode());
+            log.info("网格编码不存在或该区不存在这个网格编码: {}", source.getGridCode());
             return null;
         }
 
@@ -170,8 +182,6 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
      */
     @Override
     public void baseToTarget() {
-        log.info("开始执行【汇集走访数据至市党建系统表】任务，当前时间: {}", LocalDateTime.now());
-
         LambdaQueryWrapper<ZfDetail> queryWrapper = new LambdaQueryWrapper<>();
         // 获取上次同步的最大更新时间
         Date lastSyncTime = sqlHelper.getLastSyncTimeFromTargetDetail();
@@ -271,6 +281,129 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
 
         log.info("数据推送完成，共推送了{}条数据", totalMigrated);
     }
+
+    /**
+     * 汇集走访数据至达梦目标表（优化版）
+     */
+    @Override
+    public void baseToDmTarget() {
+        // 1. 获取上次同步时间
+        Date lastSyncTime = sqlHelper.getLastSyncTimeFromDmTargetDetail();
+        log.info("上次同步时间: {}", lastSyncTime);
+
+        // 2. 构建查询条件
+        LambdaQueryWrapper<ZfDetail> queryWrapper = new LambdaQueryWrapper<>();
+        if (lastSyncTime != null) {
+            queryWrapper.gt(ZfDetail::getUpdateTime, lastSyncTime);
+        }
+        queryWrapper.orderByAsc(ZfDetail::getUpdateTime); // 按时间排序避免遗漏
+
+        // 3. 分页查询
+        int totalMigrated = 0;
+        long startTime = System.currentTimeMillis();
+
+        try (Connection targetConn = sqlHelper.getDmTargetConn()) {
+            targetConn.setAutoCommit(false); // 关闭自动提交
+
+            // 4. 预编译SQL（使用批量插入）
+            String insertSql = buildInsertSql();
+            try (PreparedStatement pstmt = targetConn.prepareStatement(insertSql)) {
+
+                int pageNum = 1;
+                while (true) {
+                    // 5. 分页查询源数据
+                    Page<ZfDetail> page = new Page<>(pageNum, BATCH_SIZE);
+                    Page<ZfDetail> zfDetailPage = getBaseMapper().selectPage(page, queryWrapper);
+                    List<ZfDetail> records = zfDetailPage.getRecords();
+                    log.info("records: {}", records.size());
+                    if (records.isEmpty()) {
+                        log.info("数据分页 {} 无更多数据", pageNum);
+                        break;
+                    }
+
+                    // 6. 批量处理当前页数据
+                    int batchCount = 0;
+                    for (ZfDetail data : records) {
+                        setPreparedStatementParams(pstmt, data);
+                        pstmt.addBatch();
+
+                        if (++batchCount % BATCH_SIZE == 0) {
+                            log.info("batchCount: {}", batchCount);
+                            executeBatch(pstmt, targetConn);
+                        }
+                    }
+
+                    // 7. 提交剩余批次
+                    if (batchCount % BATCH_SIZE != 0) {
+                        executeBatch(pstmt, targetConn);
+                    }
+
+                    totalMigrated += records.size();
+                    logProgress(startTime, totalMigrated, records.size());
+
+                    pageNum++; // 下一页
+                }
+            } catch (SQLException e) {
+                targetConn.rollback();
+                throw new RuntimeException("批量插入失败", e);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("数据库连接异常", e);
+        }
+
+        log.info("同步完成，总计处理 {} 条数据，耗时 {} 秒",
+                totalMigrated,
+                (System.currentTimeMillis() - startTime) / 1000);
+    }
+
+    // ============== 私有方法 ==============
+    private String buildInsertSql() {
+        return "INSERT INTO dwd_dj_xxly_zf_detail (" +
+                "grid_code, grid_name, shop_name, shop_code, " +
+                "visit_time, visit_num, process_state, " +
+                "source_area, area_name, street_code, " +
+                "street_name, jhpt_update_time, dsjzx_taskid" +
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    }
+
+    private void setPreparedStatementParams(PreparedStatement pstmt, ZfDetail data)
+            throws SQLException {
+
+        int index = 1;
+        pstmt.setString(index++, data.getGridCode());
+        pstmt.setString(index++, data.getGridName());
+        pstmt.setString(index++, data.getShopName());
+        pstmt.setString(index++, data.getShopCode());
+        pstmt.setTimestamp(index++, data.getVisitTime() != null ?
+                new Timestamp(data.getVisitTime().getTime()) : null);
+        setNullableInt(pstmt, index++, 1);
+        pstmt.setString(index++, "0");
+        pstmt.setString(index++, data.getSourceArea());
+        pstmt.setString(index++, data.getAreaName());
+        pstmt.setString(index++, data.getStreetCode());
+        pstmt.setString(index++, data.getStreetName());
+        pstmt.setTimestamp(index++, new Timestamp(data.getUpdateTime().getTime()));
+        pstmt.setString(index++, data.getUpdateTime().toInstant()
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate().format(DATE_FORMATTER));
+    }
+
+
+    private void executeBatch(PreparedStatement pstmt, Connection conn)
+            throws SQLException {
+
+        int[] counts = pstmt.executeBatch();
+        conn.commit();
+        pstmt.clearBatch();
+        log.info("已提交批次，影响行数: {}", counts.length);
+    }
+
+    private void logProgress(long startTime, int totalProcessed, int batchSize) {
+        long elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000;
+        log.info("已处理: {} 条 | 当前批次: {} 条 | 耗时: {} 秒",
+                totalProcessed, batchSize, elapsedSeconds);
+    }
+
 
     private void setNullableInt(PreparedStatement pstmt, int paramIndex, Integer value) throws SQLException {
         if (value != null) {

@@ -10,4 +10,6 @@ public interface ZfDetailService extends IService<ZfDetail> {
 
     void baseToTarget();
 
+    void baseToDmTarget();
+
 }

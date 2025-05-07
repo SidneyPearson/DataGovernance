@@ -24,4 +24,22 @@ public class DBConnectionUtils {
         return DriverManager.getConnection(url, properties);
     }
 
+    public static Connection getDMConnection(String user, String password, String schema) throws SQLException {
+        Properties properties = new Properties();
+        properties.put("user", user);
+        properties.put("password", password);
+
+        String url = "jdbc:dm://10.86.131.226:15236?SCHEMA="+ schema +
+                "&clobAsString=true&rewriteBatchedStatements=true&clientEncoding=Asia/Shanghai";
+
+        // 加载 达梦 驱动
+        try {
+            Class.forName("dm.jdbc.driver.DmDriver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("DM JDBC driver not found", e);
+        }
+
+        return DriverManager.getConnection(url, properties);
+    }
+
 }

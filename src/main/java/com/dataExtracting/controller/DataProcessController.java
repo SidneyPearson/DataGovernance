@@ -1,6 +1,8 @@
 package com.dataExtracting.controller;
 
 import com.dataExtracting.domain.entity.*;
+import com.dataExtracting.domain.model.AjaxResult;
+import com.dataExtracting.helper.SqlHelper;
 import com.dataExtracting.service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +23,8 @@ public class DataProcessController extends BaseController{
     private DistrictService districtService;
     @Autowired
     private ZfDetailService zfDetailService;
+    @Autowired
+    private SqlHelper sqlHelper;
 
     private static final Logger log = LoggerFactory.getLogger(DataProcessController.class);
 
@@ -56,8 +60,8 @@ public class DataProcessController extends BaseController{
             baseInfoService.sourceToBase(district, isFirstTime);
         }
 
-        log.info("开始向目标表推送新兴领域党建数据基础信息");
-        baseInfoService.baseToTarget();
+//        log.info("开始向目标表推送新兴领域党建数据基础信息");
+//        baseInfoService.baseToTarget();
         log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
 
@@ -66,7 +70,19 @@ public class DataProcessController extends BaseController{
      */
     @GetMapping("/baseToTarget")
     public void baseToTarget() {
+        log.info("开始向目标表推送新兴领域党建数据基础信息，当前时间: {}", LocalDateTime.now());
+        baseInfoService.baseToTarget();
+        log.info("推送新兴领域党建数据基础信息任务执行完毕，当前时间: {}", LocalDateTime.now());
+    }
 
+    /**
+     * 向目标表推送党建数据基础信息表数据 dm
+     */
+    @GetMapping("/baseToTargetDm")
+    public void baseToTargetDm() {
+        log.info("开始向Dm目标表推送新兴领域党建数据基础信息，当前时间: {}", LocalDateTime.now());
+        baseInfoService.baseToDmTarget();
+        log.info("推送Dm新兴领域党建数据基础信息任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
 
     /**
@@ -101,9 +117,30 @@ public class DataProcessController extends BaseController{
             zfDetailService.sourceToBase(district, isFirstTime);
         }
 
-        log.info("开始向目标表推送新兴领域党建数据走访数据");
-        zfDetailService.baseToTarget();
+//        log.info("开始向目标表推送新兴领域党建数据走访数据");
+//        zfDetailService.baseToTarget();
         log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
+    }
+
+    /**
+     * 向目标表推送党建走访数据
+     */
+    @GetMapping("/baseToTargetDetailDm")
+    public void baseToTargetDetailDm() {
+        log.info("开始向Dm目标表推送新兴领域党建走访数据，当前时间: {}", LocalDateTime.now());
+        zfDetailService.baseToDmTarget();
+        log.info("推送Dm新兴领域党建走访数据任务执行完毕，当前时间: {}", LocalDateTime.now());
+    }
+
+    @GetMapping("/getDmCount")
+    public AjaxResult getDmCount(String tableName) {
+        return  success(sqlHelper.getDmCount(tableName));
+    }
+
+    @GetMapping("/truncateDm")
+    public AjaxResult truncateDm(String tableName) {
+        sqlHelper.truncateDm(tableName);
+        return  success("清空"+tableName+"目标表数据");
     }
 
 

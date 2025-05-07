@@ -173,8 +173,6 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, BaseInfo>
      */
     @Override
     public void baseToTarget() {
-        log.info("开始执行【汇集基础数据至市党建系统表】任务，当前时间: {}", LocalDateTime.now());
-
         LambdaQueryWrapper<BaseInfo> queryWrapper = new LambdaQueryWrapper<>();
         // 获取上次同步的最大更新时间
         Date lastSyncTime = sqlHelper.getLastSyncTimeFromTarget();
@@ -353,6 +351,216 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, BaseInfo>
                             setNullableInt(pstmt, paramIndex++, info.getNmsczts());   // nmsczts
                             setNullableInt(pstmt, paramIndex++, info.getTyssczts());  // tyssczts
                             pstmt.setString(paramIndex++, info.getProcessState());    // process_state
+                            pstmt.setString(paramIndex++, info.getAreaName());        // area_name
+                            pstmt.setString(paramIndex++, info.getStreetCode());      // street_code
+                            pstmt.setString(paramIndex++, info.getStreetName());      // street_name
+                            pstmt.setTimestamp(paramIndex++, new Timestamp(info.getUpdateTime().getTime())); // jhpt_update_time
+                            pstmt.setString(paramIndex++, info.getUpdateTime().toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate().format(DateTimeFormatter.ofPattern("yyyyMMdd"))); // dsjzx_taskid
+
+                            // WHERE 条件（最后两个参数）
+                            pstmt.setString(paramIndex++, info.getSourceArea());      // source_area
+                            pstmt.setString(paramIndex++, info.getGridCode());        // grid_code
+
+                            pstmt.addBatch(); // 添加到批处理
+                        }
+                        pstmt.executeBatch(); // 执行批量更新
+                        targetConn.commit();  // 提交事务
+                        totalMigrated += updateList.size();
+                        log.info("已更新{}条数据，当前进度: {}/{}",
+                                updateList.size(), totalMigrated, pageResult.getRecords().size());
+                    }
+                }
+                current++;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("跨库数据库数据推送失败", e);
+        }
+
+        log.info("数据推送完成，共推送了{}条数据", totalMigrated);
+    }
+
+    @Override
+    public void baseToDmTarget() {
+        LambdaQueryWrapper<BaseInfo> queryWrapper = new LambdaQueryWrapper<>();
+        // 获取上次同步的最大更新时间
+        Date lastSyncTime = sqlHelper.getLastSyncTimeFromDmTarget();
+        if (lastSyncTime != null) {
+            queryWrapper.gt(BaseInfo::getUpdateTime, lastSyncTime);
+        }
+
+        // 分页查询源库
+        int pageSize = 1000;
+        int current = 1;
+        int totalMigrated = 0;
+        boolean hasMoreData = true;
+
+        Connection targetConn = sqlHelper.getDmTargetConn();
+        try {
+            targetConn.setAutoCommit(false);
+            String insertSql = "INSERT INTO dwd_dj_xxly_info (" +
+                    "grid_code, grid_name, sczt, cyry, zfll, jldzz, qzdw, qzdzz, qzdzb, " +
+                    "fgqy, syfgqy, hhsyzqy, gtgsh, sqjjhmf, shzjzz, mbfqydw, lssws, kjssws, " +
+                    "swssws, zcpgjg, jymbfqydw, ylwsjgmbfqydw, cpjrjg, dfjrjg, jq, ly, yq, " +
+                    "sqsc, cun, dwfg, ddzjdzz, lhzjdzz, qyfg, lydzz, yqdzz, jqdzz, sqscdzz, " +
+                    "cdzz, hyfg, wfg, nmsczts, tyssczts, process_state, source_area, area_name, " +
+                    "street_code, street_name, jhpt_update_time, dsjzx_taskid" +
+                    ") VALUES (" +
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, " +  // 1-9
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, " +  // 10-18
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, " +  // 19-27
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, " +  // 28-36
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, " +  // 37-45
+                    "?, ?, ?, ?)";             // 46-49
+
+            String updateSql = "UPDATE dwd_dj_xxly_info SET " +
+                    "grid_name = ?, sczt = ?, cyry = ?, zfll = ?, jldzz = ?, qzdw = ?, qzdzz = ?, qzdzb = ?, " +  // 2-9
+                    "fgqy = ?, syfgqy = ?, hhsyzqy = ?, gtgsh = ?, sqjjhmf = ?, shzjzz = ?, mbfqydw = ?, lssws = ?, kjssws = ?, " +  // 10-18
+                    "swssws = ?, zcpgjg = ?, jymbfqydw = ?, ylwsjgmbfqydw = ?, cpjrjg = ?, dfjrjg = ?, jq = ?, ly = ?, yq = ?, " +  // 19-27
+                    "sqsc = ?, cun = ?, dwfg = ?, ddzjdzz = ?, lhzjdzz = ?, qyfg = ?, lydzz = ?, yqdzz = ?, jqdzz = ?, " +  // 28-36
+                    "sqscdzz = ?, cdzz = ?, hyfg = ?, wfg = ?, nmsczts = ?, tyssczts = ?, process_state = ?, area_name = ?, " +  // 37-44
+                    "street_code = ?, street_name = ?, jhpt_update_time = ?, dsjzx_taskid = ? " +  // 45-48
+                    "WHERE source_area = ? AND grid_code = ?";  // 49-50（条件）
+
+            while (hasMoreData) {
+                Page<BaseInfo> page = new Page<>(current, pageSize);
+                IPage<BaseInfo> pageResult = baseMapper.selectPage(page, queryWrapper);
+                List<BaseInfo> records = pageResult.getRecords();
+
+                List<BaseInfo> insertList = new ArrayList<>();
+                List<BaseInfo> updateList = new ArrayList<>();
+
+                // 终止条件：当前页无数据或已到达最后一页
+                if (records.isEmpty() || records.size() < pageSize) {
+                    hasMoreData = false;
+                }
+
+                if (!records.isEmpty()) {
+                    for (BaseInfo record : records) {
+                        boolean exists = checkIfRecordExists(targetConn, record.getSourceArea(), record.getGridCode());
+                        if (exists) {
+                            updateList.add(record);
+                        } else {
+                            insertList.add(record);
+                        }
+                    }
+                    try (PreparedStatement pstmt = targetConn.prepareStatement(insertSql)) {
+                        for (BaseInfo info : insertList) {
+                            // 设置参数
+                            int paramIndex = 1;
+
+                            pstmt.setString(paramIndex++, info.getGridCode());
+                            pstmt.setString(paramIndex++, info.getGridName());
+
+                            // 所有整型字段（可能为null）
+                            setNullableInt(pstmt, paramIndex++, info.getSczt());
+                            setNullableInt(pstmt, paramIndex++, info.getCyry());
+                            setNullableInt(pstmt, paramIndex++, info.getZfll());
+                            setNullableInt(pstmt, paramIndex++, info.getJldzz());
+                            setNullableInt(pstmt, paramIndex++, info.getQzdw());
+                            setNullableInt(pstmt, paramIndex++, info.getQzdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getQzdzb());
+                            setNullableInt(pstmt, paramIndex++, info.getFgqy());
+                            setNullableInt(pstmt, paramIndex++, info.getSyfgqy());
+                            setNullableInt(pstmt, paramIndex++, info.getHhsyzqy());
+                            setNullableInt(pstmt, paramIndex++, info.getGtgsh());
+                            setNullableInt(pstmt, paramIndex++, info.getSqjjhmf());
+                            setNullableInt(pstmt, paramIndex++, info.getShzjzz());
+                            setNullableInt(pstmt, paramIndex++, info.getMbfqydw());
+                            setNullableInt(pstmt, paramIndex++, info.getLssws());
+                            setNullableInt(pstmt, paramIndex++, info.getKjssws());
+                            setNullableInt(pstmt, paramIndex++, info.getSwssws());
+                            setNullableInt(pstmt, paramIndex++, info.getZcpgjg());
+                            setNullableInt(pstmt, paramIndex++, info.getJymbfqydw());
+                            setNullableInt(pstmt, paramIndex++, info.getYlwsjgmbfqydw());
+                            setNullableInt(pstmt, paramIndex++, info.getCpjrjg());
+                            setNullableInt(pstmt, paramIndex++, info.getDfjrjg());
+                            setNullableInt(pstmt, paramIndex++, info.getJq());
+                            setNullableInt(pstmt, paramIndex++, info.getLy());
+                            setNullableInt(pstmt, paramIndex++, info.getYq());
+                            setNullableInt(pstmt, paramIndex++, info.getSqsc());
+                            setNullableInt(pstmt, paramIndex++, info.getCun());
+                            setNullableInt(pstmt, paramIndex++, info.getDwfg());
+                            setNullableInt(pstmt, paramIndex++, info.getDdzjdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getLhzjdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getQyfg());
+                            setNullableInt(pstmt, paramIndex++, info.getLydzz());
+                            setNullableInt(pstmt, paramIndex++, info.getYqdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getJqdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getSqscdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getCdzz());
+                            setNullableInt(pstmt, paramIndex++, info.getHyfg());
+                            setNullableInt(pstmt, paramIndex++, info.getWfg());
+                            setNullableInt(pstmt, paramIndex++, info.getNmsczts());
+                            setNullableInt(pstmt, paramIndex++, info.getTyssczts());
+
+                            pstmt.setString(paramIndex++, "0");
+                            pstmt.setString(paramIndex++, info.getSourceArea());
+                            pstmt.setString(paramIndex++, info.getAreaName());
+                            pstmt.setString(paramIndex++, info.getStreetCode());
+                            pstmt.setString(paramIndex++, info.getStreetName());
+                            pstmt.setTimestamp(paramIndex++, new Timestamp(info.getUpdateTime().getTime()));
+                            pstmt.setString(paramIndex++, info.getUpdateTime().toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate().format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+                            pstmt.addBatch();
+                        }
+
+                        pstmt.executeBatch();
+                        targetConn.commit();
+                        totalMigrated += insertList.size();
+                        log.info("已推送{}条数据，当前进度: {}/{}",
+                                insertList.size(), totalMigrated, pageResult.getRecords().size());
+                    }
+
+                    try (PreparedStatement pstmt = targetConn.prepareStatement(updateSql)) {
+                        for (BaseInfo info : records) {
+                            int paramIndex = 1; // 从第1个参数开始设置
+
+                            // SET 部分（按字段顺序）
+                            pstmt.setString(paramIndex++, info.getGridName());      // grid_name
+                            setNullableInt(pstmt, paramIndex++, info.getSczt());    // sczt
+                            setNullableInt(pstmt, paramIndex++, info.getCyry());    // cyry
+                            setNullableInt(pstmt, paramIndex++, info.getZfll());    // zfll
+                            setNullableInt(pstmt, paramIndex++, info.getJldzz());   // jldzz
+                            setNullableInt(pstmt, paramIndex++, info.getQzdw());    // qzdw
+                            setNullableInt(pstmt, paramIndex++, info.getQzdzz());   // qzdzz
+                            setNullableInt(pstmt, paramIndex++, info.getQzdzb());   // qzdzb
+                            setNullableInt(pstmt, paramIndex++, info.getFgqy());   // fgqy
+                            setNullableInt(pstmt, paramIndex++, info.getSyfgqy()); // syfgqy
+                            setNullableInt(pstmt, paramIndex++, info.getHhsyzqy()); // hhsyzqy
+                            setNullableInt(pstmt, paramIndex++, info.getGtgsh());   // gtgsh
+                            setNullableInt(pstmt, paramIndex++, info.getSqjjhmf()); // sqjjhmf
+                            setNullableInt(pstmt, paramIndex++, info.getShzjzz());  // shzjzz
+                            setNullableInt(pstmt, paramIndex++, info.getMbfqydw()); // mbfqydw
+                            setNullableInt(pstmt, paramIndex++, info.getLssws());   // lssws
+                            setNullableInt(pstmt, paramIndex++, info.getKjssws());  // kjssws
+                            setNullableInt(pstmt, paramIndex++, info.getSwssws());   // swssws
+                            setNullableInt(pstmt, paramIndex++, info.getZcpgjg());   // zcpgjg
+                            setNullableInt(pstmt, paramIndex++, info.getJymbfqydw());// jymbfqydw
+                            setNullableInt(pstmt, paramIndex++, info.getYlwsjgmbfqydw()); // ylwsjgmbfqydw
+                            setNullableInt(pstmt, paramIndex++, info.getCpjrjg());   // cpjrjg
+                            setNullableInt(pstmt, paramIndex++, info.getDfjrjg());   // dfjrjg
+                            setNullableInt(pstmt, paramIndex++, info.getJq());       // jq
+                            setNullableInt(pstmt, paramIndex++, info.getLy());       // ly
+                            setNullableInt(pstmt, paramIndex++, info.getYq());       // yq
+                            setNullableInt(pstmt, paramIndex++, info.getSqsc());     // sqsc
+                            setNullableInt(pstmt, paramIndex++, info.getCun());      // cun
+                            setNullableInt(pstmt, paramIndex++, info.getDwfg());     // dwfg
+                            setNullableInt(pstmt, paramIndex++, info.getDdzjdzz());  // ddzjdzz
+                            setNullableInt(pstmt, paramIndex++, info.getLhzjdzz());  // lhzjdzz
+                            setNullableInt(pstmt, paramIndex++, info.getQyfg());     // qyfg
+                            setNullableInt(pstmt, paramIndex++, info.getLydzz());    // lydzz
+                            setNullableInt(pstmt, paramIndex++, info.getYqdzz());    // yqdzz
+                            setNullableInt(pstmt, paramIndex++, info.getJqdzz());    // jqdzz
+                            setNullableInt(pstmt, paramIndex++, info.getSqscdzz());  // sqscdzz
+                            setNullableInt(pstmt, paramIndex++, info.getCdzz());     // cdzz
+                            setNullableInt(pstmt, paramIndex++, info.getHyfg());     // hyfg
+                            setNullableInt(pstmt, paramIndex++, info.getWfg());      // wfg
+                            setNullableInt(pstmt, paramIndex++, info.getNmsczts());   // nmsczts
+                            setNullableInt(pstmt, paramIndex++, info.getTyssczts());  // tyssczts
+                            pstmt.setString(paramIndex++, "0");    // process_state
                             pstmt.setString(paramIndex++, info.getAreaName());        // area_name
                             pstmt.setString(paramIndex++, info.getStreetCode());      // street_code
                             pstmt.setString(paramIndex++, info.getStreetName());      // street_name
