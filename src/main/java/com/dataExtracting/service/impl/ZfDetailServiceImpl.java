@@ -37,7 +37,6 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
     @Autowired
     private CityGridMapper cityGridMapper;
 
-    private final String TODAY_STR = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
     private static final Logger log = LoggerFactory.getLogger(ZfDetailServiceImpl.class);
     private static final int BATCH_SIZE = 5000; // 每批处理5000条数据
     private static final DateTimeFormatter DATE_FORMATTER =
@@ -46,6 +45,9 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void sourceToBase(District district, boolean isFirst) {
+        // 每次处理时间向前推10分钟，主要针对0点数据抽取遗漏情况
+        LocalDateTime today = LocalDateTime.now().minusMinutes(10);  // 当前时间-10分钟
+        String todayStr = today.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         DistrictEnum districtEnum = DistrictEnum.fromName(district.getName());
 
         // 1. 获取源数据
@@ -53,7 +55,7 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
                 districtEnum.getUsername(),
                 districtEnum.getPassword(),
                 districtEnum.getSchema(),
-                isFirst ? null : TODAY_STR
+                isFirst ? null : todayStr
         );
         log.info("获取源数据数量: 【{}】", sourceDetailObjs.size());
 
@@ -354,6 +356,62 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
         log.info("同步完成，总计处理 {} 条数据，耗时 {} 秒",
                 totalMigrated,
                 (System.currentTimeMillis() - startTime) / 1000);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void oldDataReplenish(District district) {
+        DistrictEnum districtEnum = DistrictEnum.fromName(district.getName());
+
+        // 1. 获取源数据
+        List<SourceDetailObj> sourceDetailObjs = sqlHelper.getSourceDetailInfoDataByTime(
+                districtEnum.getUsername(),
+                districtEnum.getPassword(),
+                districtEnum.getSchema()
+        );
+        log.info("获取源数据数量: 【{}】", sourceDetailObjs.size());
+
+        // 2. 过滤有效数据（必须包含网格编码）
+        List<SourceDetailObj> validSources = sourceDetailObjs.stream()
+                .filter(s -> StringUtils.isNotEmpty(s.getGridCode())
+                        && StringUtils.isNotEmpty(s.getVisitTime()))
+                .collect(Collectors.collectingAndThen(
+                        Collectors.groupingBy(
+                                s -> s.getShopCode() + "|" + s.getVisitTime(), // 组合成唯一键
+                                Collectors.toList()
+                        ),
+                        map -> map.values().stream()
+                                .map(list -> list.get(new Random().nextInt(list.size()))) // 随机取一条
+                                .collect(Collectors.toList())
+                ));
+
+        // 3. 批量转换实体
+        List<ZfDetail> entities = validSources.stream()
+                .map(s -> convertToEntity(s, district))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        log.info("开始应用层唯一性校验！");
+        // 4. 应用层唯一性校验
+        if (!entities.isEmpty()) {
+            // 根据shop_code,visit_time和source_area查看是否存在
+            Set<String> existingKeys = getExistingUniqueKeys(entities);
+
+            // 过滤掉已存在的数据
+            List<ZfDetail> newEntities = entities.stream()
+                    .filter(e -> !existingKeys.contains(generateUniqueKey(e)))
+                    .collect(Collectors.toList());
+
+            // 5. 批量插入
+            if (!newEntities.isEmpty()) {
+                log.info("开始插入数据！");
+                saveBatch(newEntities);
+                log.info("成功插入{}条数据，跳过{}条重复数据",
+                        newEntities.size(), entities.size() - newEntities.size());
+            } else {
+                log.info("所有数据均已存在，无需插入");
+            }
+        }
     }
 
     // ============== 私有方法 ==============

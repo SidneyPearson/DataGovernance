@@ -43,12 +43,12 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, BaseInfo>
     @Autowired
     private CityGridMapper cityGridMapper;
 
-    private final String TODAY_STR = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
     private static final Logger log = LoggerFactory.getLogger(BaseInfoServiceImpl.class);
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void sourceToBase(District district, boolean isFirst) {
+        String todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         DistrictEnum districtEnum = DistrictEnum.fromName(district.getName());
 
         // 获取源数据
@@ -56,7 +56,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, BaseInfo>
                 districtEnum.getUsername(),
                 districtEnum.getPassword(),
                 districtEnum.getSchema(),
-                isFirst ? null : TODAY_STR
+                isFirst ? null : todayStr
         );
         log.info("获取源数据数量: 【{}】", sourceObjs.size());
 
