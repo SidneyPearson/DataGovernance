@@ -12,4 +12,6 @@ public interface ZfDetailService extends IService<ZfDetail> {
 
     void baseToDmTarget();
 
+    void oldDataReplenish(District district);
+
 }

@@ -168,6 +168,9 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
         if (grid == null) {
             log.info("网格编码不存在或该区不存在这个网格编码: {}", source.getGridCode());
             return null;
+        } else if (!grid.getDistrictName().equals(district.getName())) {
+            log.info("网格编码 {} 与区划 {} 不匹配", source.getGridCode(), district.getName());
+            return null;
         }
 
         // 设置网格相关字段

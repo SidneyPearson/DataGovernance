@@ -6,9 +6,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.dataExtracting.domain.constant.ProcessStats;
 import com.dataExtracting.domain.entity.*;
 import com.dataExtracting.domain.enums.DistrictEnum;
 import com.dataExtracting.helper.SqlHelper;
+import com.dataExtracting.mapper.BaseInfoV2CopyMapper;
 import com.dataExtracting.mapper.BaseInfoV2Mapper;
 import com.dataExtracting.mapper.CityGridMapper;
 import com.dataExtracting.service.BaseInfoV2Service;
@@ -38,6 +40,8 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
     private SqlHelper sqlHelper;
     @Autowired
     private CityGridMapper cityGridMapper;
+    @Autowired
+    private BaseInfoV2CopyMapper baseInfoV2CopyMapper;
 
     private static final Logger log = LoggerFactory.getLogger(BaseInfoV2ServiceImpl.class);
 
@@ -56,21 +60,27 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
         );
         log.info("获取源数据数量: 【{}】", sourceObjs.size());
 
+        ProcessStats stats = new ProcessStats();
+
         if (isFirst) {
             sourceObjs.stream()
                     .filter(source -> StringUtils.isNotEmpty(source.getGridCode()))
-                    .forEach(source -> processSourceData(source, district));
+                    .forEach(source -> processSourceData(source, district, stats));
         } else {
             sourceObjs.stream()
                     .filter(source -> StringUtils.isNotEmpty(source.getGridCode()))
-                    .forEach(source -> processInsertOrUpdateBaseData(source, district));
+                    .forEach(source -> processInsertOrUpdateBaseData(source, district, stats));
         }
+
+        log.info("数据处理统计 - 总数: {}, 新增: {}, 更新: {}",
+                stats.getTotal(), stats.getInserted(), stats.getUpdated());
 
     }
 
-    private void processSourceData(SourceObjV2 source, District district) {
+    private void processSourceData(SourceObjV2 source, District district, ProcessStats stats) {
         // *各区的来源表中可能存在GridCode和SourceArea相同的数据
         // 检查是否已存在 如果存在则拿出这条数据的JhptUpdateTime和来源数据的做对比，如果来源数据的时间更新点，则做更新
+        stats.incrementTotal();
         boolean exists = count(new LambdaQueryWrapper<BaseInfoV2>()
                 .eq(BaseInfoV2::getGridCode, source.getGridCode())
                 .eq(BaseInfoV2::getSourceArea, district.getCode())) > 0;
@@ -88,6 +98,7 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                             .setIgnoreError(true));   // 忽略类型转换错误
                     baseInfoV2.setUpdateTime(new Date());
                     update(baseInfoV2, queryWrapper); // 使用相同条件更新
+                    stats.incrementUpdated();
                 }
             } catch (ParseException e) {
                 throw new RuntimeException(e);
@@ -118,11 +129,13 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
             BaseInfoV2.setWgAreaName(cityGrid.getDistrictName());
 
             save(BaseInfoV2);
+            stats.incrementInserted();
         }
     }
 
 
-    private void processInsertOrUpdateBaseData(SourceObjV2 source, District district) {
+    private void processInsertOrUpdateBaseData(SourceObjV2 source, District district, ProcessStats stats) {
+        stats.incrementTotal();
         // 1. 构建唯一条件
         String gridCode = source.getGridCode();
         String sourceArea = district.getCode();
@@ -141,6 +154,7 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                     .setIgnoreError(true));   // 忽略类型转换错误
             existing.setUpdateTime(new Date());
             update(existing, queryWrapper); // 使用相同条件更新
+            stats.incrementUpdated();
         } else {
             // 4. 插入新记录
             CityGrid cityGrid = cityGridMapper.selectOne(
@@ -148,7 +162,10 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                             .eq(CityGrid::getGridCode, gridCode));
 
             if (cityGrid == null) {
-                log.debug("网格编码不存在: {}", gridCode);
+                log.info("网格编码不存在: {}", gridCode);
+                return;
+            } else if (!cityGrid.getDistrictName().equals(district.getName())) {
+                log.info("网格编码 {} 与区划 {} 不匹配", source.getGridCode(), district.getName());
                 return;
             }
 
@@ -163,6 +180,7 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
             newRecord.setWgAreaName(cityGrid.getDistrictName());
 
             save(newRecord);
+            stats.incrementInserted();
         }
     }
 
@@ -309,7 +327,8 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                             pstmt.setString(paramIndex++, info.getStreetName());
                             pstmt.setString(paramIndex++, info.getWgAreaCode());
                             pstmt.setString(paramIndex++, info.getWgAreaName());
-                            pstmt.setString(paramIndex++, info.getProcessState());
+//                            pstmt.setString(paramIndex++, info.getProcessState());
+                            pstmt.setString(paramIndex++, "0");
                             pstmt.setTimestamp(paramIndex++, new Timestamp(info.getJhptUpdateTime().getTime()));
                             pstmt.setString(paramIndex++, info.getUpdateTime().toInstant()
                                     .atZone(ZoneId.systemDefault())
@@ -390,7 +409,8 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                             pstmt.setString(paramIndex++, info.getStreetName());
                             pstmt.setString(paramIndex++, info.getWgAreaCode());
                             pstmt.setString(paramIndex++, info.getWgAreaName());
-                            pstmt.setString(paramIndex++, info.getProcessState());
+//                            pstmt.setString(paramIndex++, info.getProcessState());
+                            pstmt.setString(paramIndex++, "0");
                             pstmt.setTimestamp(paramIndex++, new Timestamp(info.getJhptUpdateTime().getTime()));
                             pstmt.setString(paramIndex++, info.getUpdateTime().toInstant()
                                     .atZone(ZoneId.systemDefault())
@@ -416,6 +436,18 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
         }
 
         log.info("数据推送完成，共推送了{}条数据", totalMigrated);
+    }
+
+    @Override
+    public void backupV2() {
+        // 数据量不算很大，策略是先清空备份表，再进行备份（备份昨天的）
+        baseInfoV2CopyMapper.delete(null);
+        for (BaseInfoV2 baseInfoV2 : list()) {
+            BaseInfoV2Copy baseInfoV2Copy = new BaseInfoV2Copy();
+            BeanUtil.copyProperties(baseInfoV2, baseInfoV2Copy, true);
+            baseInfoV2Copy.setBackupTime(new Date());
+            baseInfoV2CopyMapper.insert(baseInfoV2Copy);
+        }
     }
 
 

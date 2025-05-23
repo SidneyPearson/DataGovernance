@@ -10,4 +10,6 @@ public interface BaseInfoV2Service extends IService<BaseInfoV2> {
 
     void baseToDmTarget();
 
+    void backupV2();
+
 }

@@ -49,8 +49,18 @@ public class SqlHelper {
 
     public List<SourceObjV2> getSourceInfoV2Data(String username, String password, String schema, String todayStr) {
         String query = todayStr != null
-                ? "SELECT * FROM dwd_dj_xxly_info_v2 WHERE (dsjzx_taskid = ? or TO_CHAR(jhpt_update_time, 'yyyyMMdd') = ?) "
-                : "SELECT * FROM dwd_dj_xxly_info_v2";
+                ? "SELECT t1.* FROM dwd_dj_xxly_info_v2 t1 " +
+                "WHERE (t1.dsjzx_taskid = ? OR TO_CHAR(t1.jhpt_update_time, 'yyyyMMdd') = ? " +
+                "OR TO_CHAR(jhpt_update_time, 'yyyyMMdd') = TO_CHAR(TO_DATE(?, 'yyyyMMdd') - 1, 'yyyyMMdd') ) " +
+                "AND t1.jhpt_update_time = (SELECT MAX(jhpt_update_time) " +
+                "FROM dwd_dj_xxly_info_v2 t2 " +
+                "WHERE t2.dsjzx_taskid = t1.dsjzx_taskid " +
+                "AND (t2.dsjzx_taskid = ? OR TO_CHAR(t2.jhpt_update_time, 'yyyyMMdd') = ?) " +
+                "OR TO_CHAR(jhpt_update_time, 'yyyyMMdd') = TO_CHAR(TO_DATE(?, 'yyyyMMdd') - 1, 'yyyyMMdd') ) "
+                : "SELECT t1.* FROM dwd_dj_xxly_info_v2 t1 " +
+                "WHERE t1.jhpt_update_time = (SELECT MAX(jhpt_update_time) " +
+                "FROM dwd_dj_xxly_info_v2 t2 " +
+                "WHERE t2.dsjzx_taskid = t1.dsjzx_taskid)";
 
         try (Connection connection = DBConnectionUtils.getRDJCConnection(username, password, schema);
              PreparedStatement statement = connection.prepareStatement(query)) {
@@ -58,6 +68,10 @@ public class SqlHelper {
             if (todayStr != null) {
                 statement.setString(1, todayStr);
                 statement.setString(2, todayStr);
+                statement.setString(3, todayStr);
+                statement.setString(4, todayStr);
+                statement.setString(5, todayStr);
+                statement.setString(6, todayStr);
             }
 
             return processResultSetV2(statement.executeQuery());
@@ -345,6 +359,43 @@ public class SqlHelper {
         } catch (SQLException e) {
             log.warn("执行表截断操作失败: " + tableName, e);
             throw new RuntimeException("执行表截断操作失败", e);
+        }
+    }
+
+    /**
+     * 使用DELETE语句删除指定表中的所有数据
+     * @param tableName 要操作的表名（需确保表名安全）
+     * @param areaName 区域名称（用于日志记录）
+     * @return 删除的行数
+     * @throws IllegalArgumentException 如果表名不合法
+     * @throws RuntimeException 如果删除操作失败
+     */
+    public int deleteData(String tableName, String areaName) {
+        // 表名安全校验（防止SQL注入）
+        if (!tableName.matches("[a-zA-Z][a-zA-Z0-9_]*")) {
+            throw new IllegalArgumentException("无效的表名格式: " + tableName);
+        }
+
+        String sql = "DELETE FROM " + tableName + " WHERE areaName = '" + areaName + "'";
+
+        try (Connection conn = DBConnectionUtils.getDMConnection(DM_TARGET_USERNAME, DM_TARGET_PASSWORD, DM_TARGET_SCHEMA);
+             Statement stmt = conn.createStatement()) {
+
+            log.info("开始删除数据 [区域:{}] [表:{}]", areaName, tableName);
+
+            long startTime = System.currentTimeMillis();
+            int affectedRows = stmt.executeUpdate(sql);
+            long costTime = System.currentTimeMillis() - startTime;
+
+            log.info("数据删除完成 [表:{}][区:{}][影响行数:{}] [耗时:{}ms]",
+                    tableName, areaName, affectedRows, costTime);
+
+            return affectedRows;
+
+        } catch (SQLException e) {
+            String errorMsg = String.format("数据删除失败 [表:%s] [区域:%s]", tableName, areaName);
+            log.error(errorMsg, e);
+            throw new RuntimeException(errorMsg, e);
         }
     }
 
