@@ -2,6 +2,7 @@ package com.dataExtracting.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -44,11 +45,14 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void sourceToBase(District district, boolean isFirst) {
+    public void sourceToBase(District district, boolean isFirst, String date) {
         // 每次处理时间向前推10分钟，主要针对0点数据抽取遗漏情况
         LocalDateTime today = LocalDateTime.now().minusMinutes(10);  // 当前时间-10分钟
         String todayStr = today.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         DistrictEnum districtEnum = DistrictEnum.fromName(district.getName());
+        if (date != null) {
+            todayStr = date;
+        }
 
         // 1. 获取源数据
         List<SourceDetailObj> sourceDetailObjs = sqlHelper.getSourceDetailInfoData(
@@ -415,6 +419,11 @@ public class ZfDetailServiceImpl extends ServiceImpl<ZfDetailMapper, ZfDetail>
                 log.info("所有数据均已存在，无需插入");
             }
         }
+    }
+
+    @Override
+    public Long getDBCount(String tableName) {
+        return count();
     }
 
     // ============== 私有方法 ==============

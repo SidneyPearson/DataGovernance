@@ -1,10 +1,7 @@
 package com.dataExtracting.job;
 
 import com.dataExtracting.domain.entity.District;
-import com.dataExtracting.service.BaseInfoService;
-import com.dataExtracting.service.BaseInfoV2Service;
-import com.dataExtracting.service.DistrictService;
-import com.dataExtracting.service.ZfDetailService;
+import com.dataExtracting.service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +23,8 @@ public class ScheduledTasks {
     private BaseInfoV2Service baseInfoV2Service;
     @Autowired
     private ZfDetailService zfDetailService;
+    @Autowired
+    private DzzDetailService dzzDetailService;
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledTasks.class);
     
@@ -67,13 +66,21 @@ public class ScheduledTasks {
         List<District> districtList = districtService.list();
         for (District district : districtList) {
             log.info("开始处理【{}】信息表数据", district.getName());
-            zfDetailService.sourceToBase(district, false);
+            zfDetailService.sourceToBase(district, false, null);
         }
         log.info("【抽取处理全市各区新兴领域党建数据走访数据表数据】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
 
         log.info("执行【推送新兴领域党建数据走访数据数据到目标表】定时任务，当前时间: {}", LocalDateTime.now());
         zfDetailService.baseToDmTarget();
         log.info("【推送新新兴领域党建数据走访数据到目标表】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
+    }
+
+    @Scheduled(cron = "0 45 07 * * ?")
+    public void pushDzzDataTask() {
+        log.info("执行【推送市新兴领域党组织数据】定时任务，当前时间: {}", LocalDateTime.now());
+        dzzDetailService.getDzzData();
+        dzzDetailService.pushDzzData();
+        log.info("【推送市新兴领域党组织数据】定时任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
 
     @Scheduled(cron = "0 30 08 * * ?")

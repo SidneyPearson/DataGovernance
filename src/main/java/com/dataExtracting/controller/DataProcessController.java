@@ -1,8 +1,6 @@
 package com.dataExtracting.controller;
 
 import com.dataExtracting.domain.entity.*;
-import com.dataExtracting.domain.model.AjaxResult;
-import com.dataExtracting.helper.SqlHelper;
 import com.dataExtracting.service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +23,8 @@ public class DataProcessController extends BaseController{
     private DistrictService districtService;
     @Autowired
     private ZfDetailService zfDetailService;
+    @Autowired
+    private DzzDetailService dzzDetailService;
 
     private static final Logger log = LoggerFactory.getLogger(DataProcessController.class);
 
@@ -138,7 +138,8 @@ public class DataProcessController extends BaseController{
      */
     @GetMapping("/sourceToBaseDetail")
     public void sourceToBaseDetail(@RequestParam(value = "code", required = false) String code,
-                                   @RequestParam(value = "start", required = false) String start) {
+                                   @RequestParam(value = "start", required = false) String start,
+                                   @RequestParam(value = "date", required = false) String date) {
         List<District> districtList = districtService.list();
         districtList = districtList.stream().filter(d -> "Y".equals(d.getXxlyZoufangSyn()))
                 .collect(Collectors.toList());
@@ -161,7 +162,7 @@ public class DataProcessController extends BaseController{
 
         for (District district : districtList) {
             log.info("开始处理【{}】走访数据表数据", district.getName());
-            zfDetailService.sourceToBase(district, isFirstTime);
+            zfDetailService.sourceToBase(district, isFirstTime, date);
         }
 
 //        log.info("开始向目标表推送新兴领域党建数据走访数据");
@@ -178,6 +179,27 @@ public class DataProcessController extends BaseController{
         zfDetailService.baseToDmTarget();
         log.info("推送Dm新兴领域党建走访数据任务执行完毕，当前时间: {}", LocalDateTime.now());
     }
+
+    /**
+     * 抽取党建目标表的党组织数据
+     */
+    @GetMapping("/getDzzData")
+    public void getDzzData() {
+        log.info("开始从Dm目标表获取新兴领域党组织数据，当前时间: {}", LocalDateTime.now());
+        dzzDetailService.getDzzData();
+        log.info("从Dm目标表获取新兴领域党组织数据完成，当前时间: {}", LocalDateTime.now());
+    }
+
+    /**
+     * 向各区推送党组织数据
+     */
+    @GetMapping("/pushDzzData")
+    public void pushDzzData() {
+        log.info("开始向各区推送新兴领域党组织数据，当前时间: {}", LocalDateTime.now());
+        dzzDetailService.pushDzzData();
+        log.info("推送新兴领域党组织数据完成，当前时间: {}", LocalDateTime.now());
+    }
+
 
 
     /**

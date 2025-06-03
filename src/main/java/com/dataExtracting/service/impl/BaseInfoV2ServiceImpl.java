@@ -30,6 +30,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 
 @Service
@@ -51,7 +54,6 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
         String todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         DistrictEnum districtEnum = DistrictEnum.fromName(district.getName());
 
-        // 获取源数据
         List<SourceObjV2> sourceObjs = sqlHelper.getSourceInfoV2Data(
                 districtEnum.getUsername(),
                 districtEnum.getPassword(),
@@ -59,6 +61,18 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
                 isFirst ? null : todayStr
         );
         log.info("获取源数据数量: 【{}】", sourceObjs.size());
+
+        // 按 gridCode 分组，每组保留 updateTime 最大（最新）的一条
+        Map<String, SourceObjV2> latestRecords = sourceObjs.stream()
+                .collect(Collectors.toMap(
+                        SourceObjV2::getGridCode,
+                        Function.identity(),
+                        (oldObj, newObj) -> oldObj.getJhptUpdateTime()
+                                .compareTo(newObj.getJhptUpdateTime()) > 0 ? oldObj : newObj
+                ));
+
+        sourceObjs = new ArrayList<>(latestRecords.values());
+        log.info("去重后数据数量: 【{}】", sourceObjs.size());
 
         ProcessStats stats = new ProcessStats();
 
@@ -188,10 +202,12 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
     public void baseToDmTarget() {
         LambdaQueryWrapper<BaseInfoV2> queryWrapper = new LambdaQueryWrapper<>();
         // 获取上次同步的最大更新时间
-        Date lastSyncTime = sqlHelper.getLastSyncTimeFromDmTargetV2();
-        if (lastSyncTime != null) {
-            queryWrapper.gt(BaseInfoV2::getUpdateTime, lastSyncTime);
-        }
+//        Date lastSyncTime = sqlHelper.getLastSyncTimeFromDmTargetV2();
+//        if (lastSyncTime != null) {
+//            queryWrapper.gt(BaseInfoV2::getUpdateTime, lastSyncTime);
+//        }
+
+//        log.info("lastSyncTime:{} ", lastSyncTime);
 
         // 分页查询源库
         int pageSize = 1000;
@@ -440,8 +456,7 @@ public class BaseInfoV2ServiceImpl extends ServiceImpl<BaseInfoV2Mapper, BaseInf
 
     @Override
     public void backupV2() {
-        // 数据量不算很大，策略是先清空备份表，再进行备份（备份昨天的）
-        baseInfoV2CopyMapper.delete(null);
+//        baseInfoV2CopyMapper.delete(null);
         for (BaseInfoV2 baseInfoV2 : list()) {
             BaseInfoV2Copy baseInfoV2Copy = new BaseInfoV2Copy();
             BeanUtil.copyProperties(baseInfoV2, baseInfoV2Copy, true);

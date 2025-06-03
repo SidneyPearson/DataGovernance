@@ -6,12 +6,14 @@ import com.dataExtracting.domain.entity.ZfDetail;
 
 public interface ZfDetailService extends IService<ZfDetail> {
 
-    void sourceToBase(District district, boolean isFirst);
+    void sourceToBase(District district, boolean isFirst, String date);
 
     void baseToTarget();
 
     void baseToDmTarget();
 
     void oldDataReplenish(District district);
+
+    Long getDBCount(String tableName);
 
 }
