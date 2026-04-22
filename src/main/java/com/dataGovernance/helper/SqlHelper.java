@@ -145,7 +145,7 @@ public class SqlHelper {
 
         String sql =
                 "SELECT COUNT(*) FROM rxb_12345_gongdan_06 " +
-                        "WHERE REPLACE(TRIM(wp_type), '　', '') = '投诉举报类'";
+                        "WHERE wp_type = '投诉举报类'";
 
         try (Connection conn = DBConnectionUtils.getRDJCConnection(
                 DistrictEnum.DATA_PROCESS.getUsername(),
@@ -166,7 +166,7 @@ public class SqlHelper {
 
         String sql =
                 "SELECT COUNT(*) FROM rxb_12345_gongdan_06 " +
-                        "WHERE REPLACE(TRIM(wp_type), '　', '') = '投诉举报类'";
+                        "WHERE wp_type= '投诉举报类'";
 
         try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {

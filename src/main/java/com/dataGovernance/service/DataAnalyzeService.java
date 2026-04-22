@@ -2,10 +2,14 @@ package com.dataGovernance.service;
 
 import com.dataGovernance.domain.entity.GridConfig;
 import com.dataGovernance.job.DataSyncTask;
+import com.dataGovernance.utils.AISessionUtil;
 import com.dataGovernance.utils.DBConnectionUtils;
+import com.dataGovernance.utils.TokenUtil;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -21,6 +25,10 @@ import java.util.stream.Collectors;
 public class DataAnalyzeService {
 
     private final DataSyncTask dataSyncTask;
+
+    private final TokenUtil tokenUtil;
+
+    private final AISessionUtil aiSessionUtil;
 
     private static final Logger log = LoggerFactory.getLogger(DataAnalyzeService.class);
 
@@ -47,6 +55,15 @@ public class DataAnalyzeService {
             // 选择网格
             List<GridConfig> grids = filterGrids(gridCodes);
 
+            // 1.获取AI接口的accessToken
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            String token = tokenUtil.getAccessToken();
+            headers.add("Authorization", "Bearer " + token);
+
+            // 2.创建会话
+            String conversationId = aiSessionUtil.createSession(headers);
+
             LocalDateTime cursor = startTime;
             while (!cursor.isAfter(endTime)) {
 
@@ -58,7 +75,9 @@ public class DataAnalyzeService {
                                 conn,
                                 grid,
                                 cursor,
-                                ts
+                                ts,
+                                headers,
+                                conversationId
                         );
                     } catch (Exception e) {
                         log.error("分析失败 grid={} time={}",
@@ -68,6 +87,9 @@ public class DataAnalyzeService {
 
                 cursor = cursor.plusHours(1);
             }
+
+            // 3.停止会话
+            aiSessionUtil.stopSession(headers, conversationId);
 
         } catch (Exception e) {
             throw new RuntimeException("分析区间任务失败", e);

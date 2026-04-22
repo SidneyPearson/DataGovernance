@@ -51,7 +51,7 @@ public class DataProcessController extends BaseController{
         log.info("手动触发【获取人流记录】任务...");
 
         // 1. 定义要跑的时间段
-        LocalDate start = LocalDate.of(2025, 12, 27);
+        LocalDate start = LocalDate.of(2026, 1, 30);
         LocalDate end = LocalDate.now();
 
         // 2. 定义网格列表 (以后可以配置在数据库或配置文件里)

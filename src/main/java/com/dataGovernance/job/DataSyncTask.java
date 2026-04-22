@@ -5,7 +5,9 @@ import com.alibaba.fastjson.JSONObject;
 import com.dataGovernance.domain.entity.DwdRlRecord;
 import com.dataGovernance.domain.entity.GridConfig;
 import com.dataGovernance.helper.JdbcBatchInserter;
+import com.dataGovernance.utils.AISessionUtil;
 import com.dataGovernance.utils.DBConnectionUtils;
+import com.dataGovernance.utils.TokenUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -13,6 +15,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,6 +37,16 @@ public class DataSyncTask {
 
     private final JdbcBatchInserter jdbcBatchInserter;
     private static final Logger log = LoggerFactory.getLogger(DataSyncTask.class);
+    private final TokenUtil tokenUtil;
+    private final AISessionUtil aiSessionUtil;
+
+    @Value("${ai.application_id}")
+    private String aiApplicationId;
+    @Value("${ai.project_id}")
+    private String aiProjectId;
+    @Value("${ai.url}")
+    private String aiUrl;
+
 
     private static final DateTimeFormatter FMT_YMD_HMS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter FMT_CN_MD_H = DateTimeFormatter.ofPattern("MM月dd号H点");
@@ -60,7 +73,7 @@ public class DataSyncTask {
         long startTaskTime = System.currentTimeMillis();
         log.info(">>>>>> [数据同步] 任务触发，开始处理 {} 个网格 <<<<<<", TARGET_GRIDS.size());
 
-        // 计算时间窗口 (当前小时 14:10 -> 抓取 13:00-14:00)
+        // 计算时间窗口 (例：当前小时 14:10 -> 抓取 13:00-14:00)
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime endTimeWindow = now.withMinute(0).withSecond(0).withNano(0);
         LocalDateTime startTimeWindow = endTimeWindow.minusHours(1);
@@ -100,14 +113,26 @@ public class DataSyncTask {
         try (Connection conn = DBConnectionUtils.getDMConnection("skyt_slxx_dghy_prod",
                 "Skyt_slxx_dghy_prod@2025", "skyt_slxx_dghy_prod")) {
 
+            // 1.获取AI接口的accessToken
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            String token = tokenUtil.getAccessToken();
+            headers.add("Authorization", "Bearer " + token);
+
+            // 2.创建会话
+            String conversationId = aiSessionUtil.createSession(headers);
             // 循环分析每个网格
             for (GridConfig grid : TARGET_GRIDS) {
                 try {
-                    analyzeSingleGrid(conn, grid, targetTime, targetTs);
+                    analyzeSingleGrid(conn, grid, targetTime, targetTs, headers, conversationId);
                 } catch (Exception e) {
                     log.error("网格 [{}] 分析失败", grid.getGridName(), e);
                 }
             }
+
+            // 3.停止会话
+            aiSessionUtil.stopSession(headers, conversationId);
+
 
         } catch (Exception e) {
             log.error("[智能分析] 数据库连接异常", e);
@@ -117,7 +142,7 @@ public class DataSyncTask {
     }
 
     // ==========================================
-    // 私有方法：同步单个网格逻辑
+    // 私有方法：同步单个网格逻辑 (保持不变)
     // ==========================================
     private void syncSingleGrid(GridConfig grid, long beginTs, long endTs) {
         List<DwdRlRecord> buffer = new ArrayList<>();
@@ -185,7 +210,8 @@ public class DataSyncTask {
     // ==========================================
     // 私有方法：分析单个网格逻辑
     // ==========================================
-    public void analyzeSingleGrid(Connection conn, GridConfig grid, LocalDateTime targetTime, long targetTs) {
+    public void analyzeSingleGrid(Connection conn, GridConfig grid, LocalDateTime targetTime,
+                                  long targetTs, HttpHeaders headers, String conversationId) {
         // 1. 查基础信息 (必须带上 gridCode，防止查错人)
         DwdRlRecord targetRecord = getBaseRecord(conn, targetTs, grid.getGridCode());
         if (targetRecord == null) {
@@ -199,23 +225,35 @@ public class DataSyncTask {
             log.warn("[{}] 历史对比数据不足，跳过。", grid.getGridName());
             return;
         }
-//        log.info("历史数据：{}", historyJson);
+        log.info("历史数据：{}", historyJson);
 
         // 3. 组装 Prompt
         String timeCn = targetTime.format(FMT_CN_MD_H);
         String prompt = buildPrompt(historyJson, timeCn);
 
-        // 4. 调用 AI
-        String aiRawResp = callQwenAI(prompt);
+        // 4. 调用 AI (此处已修改为调用新接口)
+        // 原始调用：String aiRawResp = callLegacyQwenAI(prompt);
+        String aiRawResp = callNewQwenAI(prompt, headers, conversationId);
 
-        // 5. 解析结果并入库
+        log.info("Qwen响应结果：{}", aiRawResp);
+
+        // 5. 解析结果并入库 (使用适配新接口的解析逻辑)
         saveWarningResult(conn, targetRecord, aiRawResp);
     }
 
     // ================== 数据库与工具方法 (已升级支持多网格) ==================
 
     private void saveWarningResult(Connection conn, DwdRlRecord record, String aiRawResp) {
-        AiResult result = parseAiResponse(aiRawResp);
+        // 使用新解析方法
+        AiResult result = parseNewAiResponse(aiRawResp);
+        // 如果新解析失败（description为AI解析失败），可以考虑尝试旧解析，或者直接记录失败
+        // 为了兼容性，如果新格式解析不到，尝试用旧格式解析一次(针对fallback情况)
+        if (result.status == 0 && "AI解析失败".equals(result.description)) {
+            AiResult legacyResult = parseLegacyAiResponse(aiRawResp);
+            if (!"AI解析失败".equals(legacyResult.description)) {
+                result = legacyResult;
+            }
+        }
 
         log.info("\n====== [{}] 分析报告 ======\n时间: {}\n结果: {}\n状态: {}\n==============================",
                 record.getGridName(), record.getBeginTime(), result.description, result.status == 1 ? "异常" : "正常");
@@ -287,6 +325,10 @@ public class DataSyncTask {
         // ================== 2. 查询 ==================
         ObjectMapper mapper = new ObjectMapper();
         ObjectNode root = mapper.createObjectNode();
+
+        // 【新增】设定时间点 (格式保持和内部数据一致，如: 2026-01-06 14:00:00)
+        root.put("设定时间点", targetTime.format(FMT_YMD_HMS));
+
         ArrayNode historySameTimeArr = mapper.createArrayNode();
         ArrayNode todayTrendArr = mapper.createArrayNode();
 
@@ -339,6 +381,7 @@ public class DataSyncTask {
         root.set("历史数据", historySameTimeArr);
         root.set("当日数据", todayTrendArr);
 
+        // 如果完全查不到数据，返回 null 以便上层跳过分析
         return (historySameTimeArr.isEmpty() && todayTrendArr.isEmpty())
                 ? null
                 : root.toString();
@@ -354,85 +397,63 @@ public class DataSyncTask {
         return sb.toString();
     }
 
-    private AiResult parseAiResponse(String jsonResp) {
+    // ================== 新增：新的AI接口调用方法 ==================
+    private String callNewQwenAI(String prompt, HttpHeaders headers, String conversationId) {
+        try {
+            RestTemplate rt = new RestTemplate();
+
+            JSONObject body = new JSONObject();
+            body.put("text", prompt);
+            body.put("files", new JSONArray());
+            body.put("project_id", aiProjectId);
+            body.put("stream", false);
+            body.put("using_context", false);
+            body.put("application_id", aiApplicationId);
+            body.put("conversation_id", conversationId);
+            body.put("model_name", "Qwen3-32B");
+            body.put("model_params", new JSONObject());
+            body.put("is_temp", 1);
+            body.put("version", 2);
+            body.put("max_tokens", 2048);
+
+            HttpEntity<String> entity = new HttpEntity<>(body.toString(), headers);
+
+            String url = aiUrl + "/api/ai/chat?secret_key=5e1fdb5bc1374cd48373ba44c83d8919";
+
+            return rt.postForObject(url, entity, String.class);
+
+        } catch (Exception e) {
+            log.error("AI 新接口请求失败", e);
+            return null;
+        }
+    }
+
+    // ================== 新增：新接口结果解析方法 ==================
+    private AiResult parseNewAiResponse(String jsonResp) {
         AiResult result = new AiResult();
         result.description = "AI解析失败";
         result.status = 0;
         try {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(jsonResp);
-            JsonNode choices = root.path("choices");
-            if (choices.isArray() && choices.size() > 0) {
-                String content = choices.get(0).path("message").path("content").asText();
-                log.info("AI返回结果：" + content);
-                content = content.replaceAll("(?s)<think>.*?</think>", "").trim();
-                Matcher m = AI_RESULT_PATTERN.matcher(content);
-                if (m.find()) {
-                    String desc = m.group(1).trim();
-                    String stStr = m.group(2).trim();
-                    desc = desc.replace("分析描述（字数不大于200，分析结果涉及的所有数值必须带上）", "").trim();
-                    if (desc.endsWith("，") || desc.endsWith(",")) desc = desc.substring(0, desc.length() - 1);
-                    result.description = desc;
-                    if (stStr.contains("异常") && !stStr.contains("无异常")) {
-                        result.status = 1;
-                    }
-                } else {
-                    result.description = content;
-                }
+
+            // 新结构： data -> answer
+            JsonNode dataNode = root.path("data");
+            if (!dataNode.isMissingNode() && dataNode.has("answer")) {
+                String content = dataNode.path("answer").asText();
+                log.info("AI返回结果(New)：" + content);
+
+                // 复用原有的 Regex 逻辑处理内容
+                processContent(content, result);
             }
         } catch (Exception e) {
-            log.error("JSON 解析异常", e);
+            log.error("JSON 解析异常 (New)", e);
         }
         return result;
     }
 
-    private String buildPrompt(String json, String timeCn) {
-        return String.format(
-                "%s\n" +
-                        "你只允许基于输入 JSON 进行分析，禁止任何推断、补全、改写或重构数据。\n" +
-                        "不要返回思考过程，只输出结论性内容。\n" +
-
-                        "【设定时间点】%s\n" +
-
-                        "【数据说明】\n" +
-                        "- 「历史数据」：最近多日【相同时间点】的人流量，仅用于条件2；\n" +
-                        "- 「当日数据」：当天 0 点至设定时间点的连续小时数据，仅用于条件1。\n" +
-
-                        "【时间字段硬约束（必须严格执行）】\n" +
-                        "- 所有输出中的「时间点」字符串，必须逐字等于输入 JSON 中对应记录的时间点；\n" +
-                        "- 禁止对时间进行推算、替换、补全、重排或跨年映射；\n" +
-                        "- 禁止将历史样本理解为“往年同一天”；\n" +
-                        "- 若无法逐字复用输入时间点，条件2直接判定为“无异常”。\n" +
-
-                        "【条件1｜当日环比】\n" +
-                        "- 使用「当日数据」；\n" +
-                        "- 设定时间点对应当日序号 = N；前1小时 = N-1；\n" +
-                        "- 增幅 = (当前值 - 前1小时值) / 前1小时值 × 100%%；\n" +
-                        "- 增幅 >30%% ⇒ 异常，否则 ⇒ 无异常；\n" +
-                        "- 若前1小时不存在 ⇒ 条件1 = 无法判断。\n" +
-
-                        "【条件2｜历史同时间对比】\n" +
-                        "- 使用「历史数据」，禁止裁剪、跳过或合并样本；\n" +
-                        "- 样本总数 = 历史数据数组长度；\n" +
-                        "- 对每一条历史样本，逐条列出：\n" +
-                        "  历史序号｜时间点（原文）｜历史值｜增幅%%｜是否>30%%（是/否）；\n" +
-                        "- 超过60%%的样本增幅 >30%% ⇒ 条件2 = 异常，否则 = 无异常。\n" +
-
-                        "【最终判定】\n" +
-                        "- 仅当【条件1 = 异常 且 条件2 = 异常】⇒ 最终结果 = 异常；\n" +
-                        "- 其余所有情况（含无法判断）⇒ 最终结果 = 无异常。\n" +
-
-                        "【输出格式（必须严格遵守）】\n" +
-                        "@1.分析描述（≤200字，含条件1与条件2逐样本说明）\n" +
-                        "@2.最终结果（仅允许：异常 / 无异常）",
-                json, timeCn
-        );
-    }
-
-
-
-
-    private String callQwenAI(String prompt) {
+    // ================== 保留：旧的AI接口调用方法 (改名保留) ==================
+    private String callLegacyQwenAI(String prompt) {
         try {
             RestTemplate rt = new RestTemplate();
 
@@ -443,7 +464,10 @@ public class DataSyncTask {
 
             JSONObject sys = new JSONObject();
             sys.put("role", "system");
-            sys.put("content", "你是一个严格按规则执行的分析程序，只能基于输入数据计算结果。不要返回思考过程。");
+            sys.put("content",
+                    "你是一个规则驱动的计算程序，不具备主观判断能力，" +
+                            "只能按指令逐条计算并输出结果。"
+            );
 
             JSONObject usr = new JSONObject();
             usr.put("role", "user");
@@ -464,11 +488,105 @@ public class DataSyncTask {
                     String.class
             );
         } catch (Exception e) {
-            log.error("AI 接口请求失败", e);
+            log.error("AI 旧接口请求失败", e);
             return null;
         }
     }
 
+    // ================== 保留：旧的解析逻辑 (用于解析旧接口响应) ==================
+    private AiResult parseLegacyAiResponse(String jsonResp) {
+        AiResult result = new AiResult();
+        result.description = "AI解析失败";
+        result.status = 0;
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(jsonResp);
+            JsonNode choices = root.path("choices");
+            if (choices.isArray() && choices.size() > 0) {
+                String content = choices.get(0).path("message").path("content").asText();
+                log.info("AI返回结果(Legacy)：" + content);
+                processContent(content, result);
+            }
+        } catch (Exception e) {
+            log.error("JSON 解析异常 (Legacy)", e);
+        }
+        return result;
+    }
+
+    // ================== 抽取：通用的文本处理逻辑 ==================
+    private void processContent(String content, AiResult result) {
+        content = content.replaceAll("(?s)<think>.*?</think>", "").trim();
+        Matcher m = AI_RESULT_PATTERN.matcher(content);
+        if (m.find()) {
+            String desc = m.group(1).trim();
+            String stStr = m.group(2).trim();
+            desc = desc.replace("分析描述（字数不大于200，分析结果涉及的所有数值必须带上）", "").trim();
+            if (desc.endsWith("，") || desc.endsWith(",")) desc = desc.substring(0, desc.length() - 1);
+            result.description = desc;
+            if (stStr.contains("异常") && !stStr.contains("无异常")) {
+                result.status = 1;
+            }
+        } else {
+            result.description = content;
+        }
+    }
+
+    private String buildPrompt(String json, String timeCn) {
+//        return String.format(
+//                "%s\n" +
+//
+//                        "【最高优先级指令｜必须遵守】\n" +
+//                        "- 严禁返回 <think>、推理过程、思考步骤、内部分析\n" +
+//                        "- 严禁解释你是如何得出结论的\n" +
+//                        "- 只能按【输出格式】返回最终文本\n" +
+//                        "- 若无法严格遵守规则，视为输出错误\n" +
+//
+//                        "【分析设定时间点】%s\n" +
+//
+//                        "【数据使用总规则】\n" +
+//                        "- 你只能基于输入 JSON 中已存在的数据进行计算\n" +
+//                        "- 禁止推断、补全、重排、改写、映射或重构任何数据\n" +
+//                        "- 禁止自行假设缺失值、默认值或业务含义\n" +
+//
+//                        "【数据结构说明】\n" +
+//                        "1. 当日数据：当天 00:00 → 设定时间点的连续小时数据，仅用于条件1\n" +
+//                        "2. 历史数据：最近多日【相同时间点】的数据，仅用于条件2\n" +
+//
+//                        "【时间字段硬约束（极其重要）】\n" +
+//                        "- 所有输出中的“时间点”必须逐字等于输入 JSON 中对应记录的时间点\n" +
+//                        "- 禁止对时间进行推算、替换、补全、跨日或跨年映射\n" +
+//                        "- 禁止将历史数据理解为“往年同一天”\n" +
+//                        "- 若无法逐字复用输入时间点字符串，则条件2直接判定为【无异常】\n" +
+//
+//                        "【条件1｜当日环比判定】\n" +
+//                        "- 仅允许使用【当日数据】\n" +
+//                        "- 设定时间点对应当日序号 = N，前1小时 = N-1\n" +
+//                        "- 增幅 = (当前值 - 前1小时值) / 前1小时值 × 100%%\n" +
+//                        "- 增幅 > 30%% ⇒ 条件1 = 异常，否则 ⇒ 条件1 = 无异常\n" +
+//                        "- 若前1小时不存在或无法计算 ⇒ 条件1 = 无法判断\n" +
+//
+//                        "【条件2｜历史同时间对比判定】\n" +
+//                        "- 仅允许使用【历史数据】\n" +
+//                        "- 禁止裁剪、跳过、合并或忽略任何历史样本\n" +
+//                        "- 历史样本总数 = 历史数据数组的实际长度\n" +
+//                        "- 必须对每一条历史样本逐条、显式列出以下信息：\n" +
+//                        "  历史序号｜时间点（原文）｜历史值｜当前值｜增幅%%｜是否>30%%（是/否）\n" +
+//                        "- 禁止使用“分别为”“依次为”等概括性描述\n" +
+//                        "- 增幅 >30%% 的样本数 / 总样本数 > 60%% ⇒ 条件2 = 异常，否则 = 无异常\n" +
+//
+//                        "【最终结果硬性规则】\n" +
+//                        "- 仅当【条件1 = 异常 且 条件2 = 异常】⇒ 最终结果 = 异常\n" +
+//                        "- 其余所有情况（含 无异常 / 无法判断）⇒ 最终结果 = 无异常\n" +
+//                        "- 禁止分析描述与最终结果不一致\n" +
+//                        "- 若出现不一致，直接视为输出错误\n" +
+//
+//                        "【唯一允许的输出格式】\n" +
+//                        "@1.分析描述\n" +
+//                        "@2.最终结果（仅允许：异常 / 无异常）",
+//                json, timeCn
+//        );
+        return json;
+    }
 
     private long toTs(LocalDateTime t) {
         return t.atZone(ZoneId.systemDefault()).toEpochSecond();
