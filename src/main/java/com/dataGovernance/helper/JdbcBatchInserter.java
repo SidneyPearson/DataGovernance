@@ -3,6 +3,7 @@ package com.dataGovernance.helper;
 import com.dataGovernance.domain.entity.DwdAjWgajInfo1208;
 import com.dataGovernance.domain.entity.DwdRlRecord;
 import com.dataGovernance.domain.entity.Rxb12345Gongdan06;
+import com.dataGovernance.domain.entity.TousuGongdanSWB;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -240,5 +241,81 @@ public class JdbcBatchInserter {
 
     private Timestamp toTs(java.util.Date d) {
         return d == null ? null : new Timestamp(d.getTime());
+    }
+
+    private static final String SQL_SWB =
+            "INSERT INTO rxb_12345_gongdan_06_tousu_swb (" +
+                    "wpid, calltime, callnum, rel_name, gender, rel_district, rel_address, " +
+                    "call_type, isrepeat, wp_source, wp_type, class1, class2, class3, class4, " +
+                    "summary, supervision, dept_level2, wp_customertype, wp_servicetype, " +
+                    "rel_phoneno, hurry_count, priority, note, callid, new_class1, new_class2, " +
+                    "new_class3, new_class4, new_class5, dept_level3, create_time, dsjzx_taskid) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " +
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    public void insertSwbBatch(Connection conn, List<TousuGongdanSWB> list, int batchSize) throws SQLException {
+        if (list == null || list.isEmpty()) return;
+
+        boolean prev = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+
+        try (PreparedStatement ps = conn.prepareStatement(SQL_SWB)) {
+
+            int count = 0;
+            for (TousuGongdanSWB o : list) {
+
+                ps.setString(1, o.getWpid());
+                ps.setTimestamp(2, toTs(o.getCalltime()));
+                ps.setString(3, o.getCallnum());
+                ps.setString(4, o.getRelName());
+                ps.setString(5, o.getGender());
+                ps.setString(6, o.getRelDistrict());
+                ps.setString(7, o.getRelAddress());
+                ps.setString(8, o.getCallType());
+                ps.setString(9, o.getIsrepeat());
+                ps.setString(10, o.getWpSource());
+                ps.setString(11, o.getWpType());
+                ps.setString(12, o.getClass1());
+                ps.setString(13, o.getClass2());
+                ps.setString(14, o.getClass3());
+                ps.setString(15, o.getClass4());
+                ps.setString(16, o.getSummary());
+                ps.setString(17, o.getSupervision());
+                ps.setString(18, o.getDeptLevel2());
+                ps.setString(19, o.getWpCustomertype());
+                ps.setString(20, o.getWpServicetype());
+                ps.setString(21, o.getRelPhoneno());
+                ps.setString(22, o.getHurryCount());
+                ps.setString(23, o.getPriority());
+                ps.setString(24, o.getNote());
+                ps.setString(25, o.getCallid());
+                ps.setString(26, o.getNewClass1());
+                ps.setString(27, o.getNewClass2());
+                ps.setString(28, o.getNewClass3());
+                ps.setString(29, o.getNewClass4());
+                ps.setString(30, o.getNewClass5());
+                ps.setString(31, o.getDeptLevel3());
+                ps.setTimestamp(32, toTs(o.getCreateTime()));
+                ps.setString(33, o.getDsjzxTaskid());
+
+                ps.addBatch();
+                count++;
+
+                if (count % batchSize == 0) {
+                    ps.executeBatch();
+                    conn.commit();
+                }
+            }
+
+            ps.executeBatch();
+            conn.commit();
+
+        } catch (Exception e) {
+            conn.rollback();
+            log.error("批量插入SWB数据异常", e);
+            throw e;
+        } finally {
+            conn.setAutoCommit(prev);
+        }
     }
 }

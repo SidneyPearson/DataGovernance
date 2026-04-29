@@ -5,11 +5,13 @@ import com.dataGovernance.domain.entity.DwdAjWgajInfo1208;
 import com.dataGovernance.domain.entity.DwdRlRecord;
 import com.dataGovernance.domain.entity.GridConfig;
 import com.dataGovernance.domain.entity.Rxb12345Gongdan06;
+import com.dataGovernance.domain.entity.TousuGongdanSWB;
 import com.dataGovernance.domain.entity.origin.DwdAjWgajInfo;
 import com.dataGovernance.domain.entity.origin.SourceObj;
 import com.dataGovernance.helper.SqlHelper;
 import com.dataGovernance.helper.JdbcBatchInserter;
 import com.dataGovernance.mapper.BaseInfoMapper;
+import com.dataGovernance.mapper.TousuGongdanSWBMapper;
 import com.dataGovernance.service.BaseInfoService;
 import com.dataGovernance.utils.DBConnectionUtils;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -44,6 +46,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
         implements BaseInfoService {
 
     private final BaseInfoMapper baseInfoMapper;
+    private final TousuGongdanSWBMapper tousuGongdanSWBMapper;
     private final SqlHelper sqlHelper;
     private final JdbcBatchInserter jdbcBatchInserter;
     private final DataSource dataSource;
@@ -376,5 +379,114 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
         return null;
     }
 
+    @Override
+    public void syncTousuToSWB(boolean firstInsert) {
+        long start = System.currentTimeMillis();
+        long total = 0;
+        long inserted = 0;
+
+        log.info("开始同步 rxb_12345_gongdan_06_tousu -> rxb_12345_gongdan_06_tousu_swb，首次插入: {}", firstInsert);
+
+        long totalToMigrate = sqlHelper.countSwbRows(firstInsert);
+        log.info("源表中满足条件的数据总量：{} 条", totalToMigrate);
+
+
+        try {
+            sqlHelper.openCursorWithTaskId(firstInsert);
+
+            while (true) {
+                List<SourceObj> batch = sqlHelper.fetchPage(PAGE_SIZE);
+                if (batch.isEmpty()) break;
+
+                List<Rxb12345Gongdan06> sourceEntities = batch.stream()
+                        .map(this::convert)
+                        .collect(Collectors.toList());
+
+                List<TousuGongdanSWB> toInsert;
+
+                if (firstInsert) {
+                    toInsert = sourceEntities.stream()
+                            .map(this::convertToSWB)
+                            .collect(Collectors.toList());
+                } else {
+                    List<String> wpidList = sourceEntities.stream()
+                            .map(Rxb12345Gongdan06::getWpid)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+
+                    if (!wpidList.isEmpty()) {
+                        List<String> existingWpids = tousuGongdanSWBMapper.selectExistingWpids(wpidList);
+                        Set<String> existingSet = new HashSet<>(existingWpids);
+
+                        toInsert = sourceEntities.stream()
+                                .filter(e -> e.getWpid() != null && !existingSet.contains(e.getWpid()))
+                                .map(this::convertToSWB)
+                                .collect(Collectors.toList());
+                    } else {
+                        toInsert = new ArrayList<>();
+                    }
+                }
+
+                if (!toInsert.isEmpty()) {
+                    try (Connection conn = dataSource.getConnection()) {
+                        jdbcBatchInserter.insertSwbBatch(conn, toInsert, BATCH_SIZE);
+                    }
+                    inserted += toInsert.size();
+                }
+
+                total += sourceEntities.size();
+
+                if (total % 20000 == 0) {
+                    log.info("已处理 {} 条，已插入 {} 条", total, inserted);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("同步失败", e);
+        } finally {
+            sqlHelper.closeCursor();
+        }
+
+        log.info("同步完成，总读取 {} 条，成功插入 {} 条，耗时 {} 秒",
+                total, inserted, (System.currentTimeMillis() - start) / 1000);
+    }
+
+    private TousuGongdanSWB convertToSWB(Rxb12345Gongdan06 source) {
+        TousuGongdanSWB target = new TousuGongdanSWB();
+        target.setWpid(source.getWpid());
+        target.setCalltime(source.getCalltime());
+        target.setCallnum(source.getCallnum());
+        target.setRelName(source.getRelName());
+        target.setGender(source.getGender());
+        target.setRelDistrict(source.getRelDistrict());
+        target.setRelAddress(source.getRelAddress());
+        target.setCallType(source.getCallType());
+        target.setIsrepeat(source.getIsrepeat());
+        target.setWpSource(source.getWpSource());
+        target.setWpType(source.getWpType());
+        target.setClass1(source.getClass1());
+        target.setClass2(source.getClass2());
+        target.setClass3(source.getClass3());
+        target.setClass4(source.getClass4());
+        target.setSummary(source.getSummary());
+        target.setSupervision(source.getSupervision());
+        target.setDeptLevel2(source.getDeptLevel2());
+        target.setWpCustomertype(source.getWpCustomertype());
+        target.setWpServicetype(source.getWpServicetype());
+        target.setRelPhoneno(source.getRelPhoneno());
+        target.setHurryCount(source.getHurryCount());
+        target.setPriority(source.getPriority());
+        target.setNote(source.getNote());
+        target.setCallid(source.getCallid());
+        target.setNewClass1(source.getNewClass1());
+        target.setNewClass2(source.getNewClass2());
+        target.setNewClass3(source.getNewClass3());
+        target.setNewClass4(source.getNewClass4());
+        target.setNewClass5(source.getNewClass5());
+        target.setDeptLevel3(source.getDeptLevel3());
+        target.setCreateTime(source.getCreateTime());
+        target.setDsjzxTaskid(source.getDsjzxTaskid());
+        return target;
+    }
 
 }

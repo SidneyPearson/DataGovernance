@@ -31,10 +31,10 @@ public class SqlHelper {
     public void openCursor() throws SQLException {
         if (cursorOpened) return;
 
-        cursorConn = DBConnectionUtils.getRDJCConnection(
-                DistrictEnum.DATA_PROCESS.getUsername(),
-                DistrictEnum.DATA_PROCESS.getPassword(),
-                DistrictEnum.DATA_PROCESS.getSchema());
+        cursorConn = DBConnectionUtils.getConnection(
+                DistrictEnum.DSJZX.getUsername(),
+                DistrictEnum.DSJZX.getPassword(),
+                DistrictEnum.DSJZX.getSchema());
         cursorConn.setAutoCommit(false);
 
         try (Statement st = cursorConn.createStatement()) {
@@ -49,6 +49,104 @@ public class SqlHelper {
 
         cursorOpened = true;
         log.info("游标 data_cursor 已开启");
+    }
+
+    /**
+     * 获取投诉表中最大的 DSJZX_TASKID
+     * 
+     * @return 最大的taskId值，如果表为空返回null
+     */
+    public String getMaxTaskIdFromSource() {
+        String sql = "SELECT MAX(\"DSJZX_TASKID\") FROM \"dsjzx\".\"rxb_12345_gongdan_06_tousu_swb\"";
+
+        try (Connection conn = DBConnectionUtils.getConnection(
+                DistrictEnum.DSJZX.getUsername(),
+                DistrictEnum.DSJZX.getPassword(),
+                DistrictEnum.DSJZX.getSchema());
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+
+            if (rs.next()) {
+                String maxTaskId = rs.getString(1);
+                log.info("投诉表最大 DSJZX_TASKID: {}", maxTaskId);
+                return maxTaskId;
+            }
+
+        } catch (Exception e) {
+            log.error("查询投诉表最大 DSJZX_TASKID 失败", e);
+        }
+        return null;
+    }
+
+    /**
+     * 统计投诉表中满足条件的数据量（用于SWB同步）
+     * 
+     * @param firstInsert true-全量统计，false-增量统计（根据最大taskId过滤）
+     * @return 满足条件的数据行数
+     */
+    public long countSwbRows(boolean firstInsert) {
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT COUNT(*) FROM \"dsjzx\".\"rxb_12345_gongdan_06_tousu\" A ");
+        sql.append("WHERE A.\"DEPT_LEVEL2\" NOT LIKE '%区人民政府' AND A.\"DEPT_LEVEL2\" IS NOT NULL ");
+
+        if (!firstInsert) {
+            String maxTaskId = getMaxTaskIdFromSource();
+            if (maxTaskId != null && !maxTaskId.isEmpty()) {
+                sql.append("AND A.\"DSJZX_TASKID\" > '").append(maxTaskId).append("'");
+            }
+        }
+
+        try (Connection conn = DBConnectionUtils.getConnection(
+                DistrictEnum.DSJZX.getUsername(),
+                DistrictEnum.DSJZX.getPassword(),
+                DistrictEnum.DSJZX.getSchema());
+             PreparedStatement ps = conn.prepareStatement(sql.toString());
+             ResultSet rs = ps.executeQuery()) {
+
+            if (rs.next()) return rs.getLong(1);
+
+        } catch (Exception e) {
+            log.error("统计SWB同步数据量失败", e);
+        }
+        return 0;
+    }
+
+    /**
+     * 打开投诉表游标（用于SWB同步）
+     * 
+     * @param firstInsert true-全量读取，false-增量读取（根据最大taskId过滤）
+     * @throws SQLException 数据库操作异常
+     */
+    public void openCursorWithTaskId(boolean firstInsert) throws SQLException {
+        if (cursorOpened) return;
+
+        cursorConn = DBConnectionUtils.getConnection(
+                DistrictEnum.DSJZX.getUsername(),
+                DistrictEnum.DSJZX.getPassword(),
+                DistrictEnum.DSJZX.getSchema());
+        cursorConn.setAutoCommit(false);
+
+        StringBuilder sqlBuilder = new StringBuilder();
+        sqlBuilder.append("DECLARE data_cursor CURSOR FOR SELECT * FROM \"dsjzx\".\"rxb_12345_gongdan_06_tousu\" A ");
+        sqlBuilder.append("WHERE A.\"DEPT_LEVEL2\" NOT LIKE '%区人民政府' AND A.\"DEPT_LEVEL2\" IS NOT NULL ");
+
+        if (!firstInsert) {
+            String maxTaskId = getMaxTaskIdFromSource();
+            if (maxTaskId != null && !maxTaskId.isEmpty()) {
+                sqlBuilder.append("AND A.\"DSJZX_TASKID\" > '").append(maxTaskId).append("' ");
+                log.info("使用投诉表最大taskId作为过滤条件: {}", maxTaskId);
+            }
+        }
+
+        sqlBuilder.append("ORDER BY CTID");
+
+        try (Statement st = cursorConn.createStatement()) {
+            st.execute("BEGIN");
+            st.execute(sqlBuilder.toString());
+        }
+
+        cursorOpened = true;
+        log.info("游标 data_cursor 已开启（首次插入: {}）", firstInsert);
     }
 
     /**

@@ -91,5 +91,28 @@ public class DataProcessController extends BaseController{
         return "分析任务已触发";
     }
 
+    /**
+     * 同步投诉工单到SWB表接口
+     * 
+     * @param firstInsert 是否首次插入（清空目标表后全量同步），不传或空值表示增量同步
+     * @return 操作结果提示
+     * 
+     * 使用示例：
+     * GET /data/syncTousuToSWB          - 增量同步（根据投诉表最大taskId判断增量数据）
+     * GET /data/syncTousuToSWB?start=true  - 首次全量同步（清空目标表后全量插入）
+     */
+    @GetMapping("/syncTousuToSWB")
+    public String syncTousuToSWB(@RequestParam(value = "start", required = false) String firstInsert) {
+        log.info("手动触发【同步投诉工单到SWB表】任务，当前时间: {}", LocalDateTime.now());
+
+        boolean isFirstInsert = firstInsert != null && !firstInsert.isEmpty();
+        log.info("首次插入标识: {}", isFirstInsert);
+
+        baseInfoService.syncTousuToSWB(isFirstInsert);
+
+        log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
+        return "同步任务已触发";
+    }
+
 
 }
