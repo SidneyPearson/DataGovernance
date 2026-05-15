@@ -5,8 +5,13 @@ import com.dataGovernance.domain.entity.DwdAjWgajInfo1208;
 import com.dataGovernance.domain.entity.DwdRlRecord;
 import com.dataGovernance.domain.entity.GridConfig;
 import com.dataGovernance.domain.entity.Rxb12345Gongdan06;
+import com.dataGovernance.domain.entity.SgbXskbShenhe0508;
+import com.dataGovernance.domain.entity.SgbXskbShenqing0508;
+import com.dataGovernance.domain.entity.SgbXskbZoufang0508;
 import com.dataGovernance.domain.entity.TousuGongdanSWB;
 import com.dataGovernance.domain.entity.origin.DwdAjWgajInfo;
+import com.dataGovernance.domain.entity.origin.SgbXskbShenheOrigin;
+import com.dataGovernance.domain.entity.origin.SgbXskbZoufangOrigin;
 import com.dataGovernance.domain.entity.origin.SourceObj;
 import com.dataGovernance.helper.SqlHelper;
 import com.dataGovernance.helper.JdbcBatchInserter;
@@ -28,14 +33,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Timestamp;
+import java.sql.*;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Date;
 import java.util.stream.Collectors;
 
 
@@ -489,4 +494,345 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
         return target;
     }
 
+    @Override
+    public void syncSgbShenheFromDataProcess() {
+        long start = System.currentTimeMillis();
+        long total = 0;
+        long inserted = 0;
+        long updated = 0;
+
+        log.info("开始同步 SGB_XSKB_SHENHE_0508 -> SGB_XSKB_SHENHE_0508（使用HANDLE_ID作为唯一标识）");
+
+        long totalToMigrate = sqlHelper.countSgbRows("SGB_XSKB_SHENHE_0508");
+        log.info("源表中满足条件的数据总量：{} 条", totalToMigrate);
+
+        try {
+            sqlHelper.openSgbShenheCursor();
+
+            while (true) {
+                List<SgbXskbShenheOrigin> batch = sqlHelper.fetchSgbShenhePage(PAGE_SIZE);
+                if (batch.isEmpty()) break;
+
+                List<SgbXskbShenhe0508> entities = batch.stream()
+                        .map(this::convertToSgbShenhe)
+                        .collect(Collectors.toList());
+
+                List<String> handleIds = entities.stream()
+                        .map(SgbXskbShenhe0508::getHandleId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                if (!handleIds.isEmpty()) {
+                    List<String> existingIds = sqlHelper.getExistingIds("SGB_XSKB_SHENHE_0508", handleIds);
+                    Set<String> existingSet = new HashSet<>(existingIds);
+
+                    List<SgbXskbShenhe0508> toInsert = entities.stream()
+                            .filter(e -> e.getHandleId() != null && !existingSet.contains(e.getHandleId()))
+                            .collect(Collectors.toList());
+
+                    List<SgbXskbShenhe0508> toUpdate = entities.stream()
+                            .filter(e -> e.getHandleId() != null && existingSet.contains(e.getHandleId()))
+                            .collect(Collectors.toList());
+
+                    try (Connection conn = dataSource.getConnection()) {
+                        if (!toInsert.isEmpty()) {
+                            jdbcBatchInserter.insertSgbShenheBatch(conn, toInsert, BATCH_SIZE);
+                            inserted += toInsert.size();
+                        }
+                        if (!toUpdate.isEmpty()) {
+                            jdbcBatchInserter.updateSgbShenheBatch(conn, toUpdate, BATCH_SIZE);
+                            updated += toUpdate.size();
+                        }
+                    }
+                }
+
+                total += batch.size();
+
+                if (total % 20000 == 0) {
+                    log.info("已处理 {} 条，已插入 {} 条，已更新 {} 条", total, inserted, updated);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("同步失败", e);
+        } finally {
+            sqlHelper.closeCursor();
+        }
+
+        log.info("同步完成，总读取 {} 条，成功插入 {} 条，成功更新 {} 条，耗时 {} 秒",
+                total, inserted, updated, (System.currentTimeMillis() - start) / 1000);
+    }
+
+    @Override
+    public void syncSgbShenqingFromDataProcess() {
+        long start = System.currentTimeMillis();
+        long total = 0;
+        long inserted = 0;
+        long updated = 0;
+
+        log.info("开始同步 SGB_XSKB_SHENQING_0508 -> SGB_XSKB_SHENQING_0508（使用PROBLEM_ID作为唯一标识）");
+
+        long totalToMigrate = sqlHelper.countSgbRows("SGB_XSKB_SHENQING_0508");
+        log.info("源表中满足条件的数据总量：{} 条", totalToMigrate);
+
+        try {
+            sqlHelper.openSgbShenqingCursor();
+
+            while (true) {
+                List<SgbXskbShenqing0508> entities = sqlHelper.fetchSgbShenqingPage(PAGE_SIZE);
+                if (entities.isEmpty()) break;
+
+                List<String> problemIds = entities.stream()
+                        .map(SgbXskbShenqing0508::getProblemId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                if (!problemIds.isEmpty()) {
+                    List<String> existingIds = sqlHelper.getExistingIds("SGB_XSKB_SHENQING_0508", problemIds);
+                    Set<String> existingSet = new HashSet<>(existingIds);
+
+                    List<SgbXskbShenqing0508> toInsert = entities.stream()
+                            .filter(e -> e.getProblemId() != null && !existingSet.contains(e.getProblemId()))
+                            .collect(Collectors.toList());
+
+                    List<SgbXskbShenqing0508> toUpdate = entities.stream()
+                            .filter(e -> e.getProblemId() != null && existingSet.contains(e.getProblemId()))
+                            .collect(Collectors.toList());
+
+                    try (Connection conn = dataSource.getConnection()) {
+                        // 在目标库中补充网格信息
+                        fillGridInfo(conn, entities);
+                        
+                        if (!toInsert.isEmpty()) {
+                            jdbcBatchInserter.insertSgbShenqingBatch(conn, toInsert, BATCH_SIZE);
+                            inserted += toInsert.size();
+                        }
+                        if (!toUpdate.isEmpty()) {
+                            jdbcBatchInserter.updateSgbShenqingBatch(conn, toUpdate, BATCH_SIZE);
+                            updated += toUpdate.size();
+                        }
+                    }
+                }
+
+                total += entities.size();
+
+                if (total % 20000 == 0) {
+                    log.info("已处理 {} 条，已插入 {} 条，已更新 {} 条", total, inserted, updated);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("同步失败", e);
+        } finally {
+            sqlHelper.closeCursor();
+        }
+
+        log.info("同步完成，总读取 {} 条，成功插入 {} 条，成功更新 {} 条，耗时 {} 秒",
+                total, inserted, updated, (System.currentTimeMillis() - start) / 1000);
+    }
+
+    @Override
+    public void syncSgbZoufangFromDataProcess() {
+        long start = System.currentTimeMillis();
+        long total = 0;
+        long inserted = 0;
+        long updated = 0;
+
+        log.info("开始同步 SGB_XSKB_ZOUFANG_0508 -> SGB_XSKB_ZOUFANG_0508（使用VISIT_ID作为唯一标识）");
+
+        long totalToMigrate = sqlHelper.countSgbRows("SGB_XSKB_ZOUFANG_0508");
+        log.info("源表中满足条件的数据总量：{} 条", totalToMigrate);
+
+        try {
+            sqlHelper.openSgbZoufangCursor();
+
+            while (true) {
+                List<SgbXskbZoufangOrigin> batch = sqlHelper.fetchSgbZoufangPage(PAGE_SIZE);
+                if (batch.isEmpty()) break;
+
+                List<SgbXskbZoufang0508> entities = batch.stream()
+                        .map(this::convertToSgbZoufang)
+                        .collect(Collectors.toList());
+
+                List<String> visitIds = entities.stream()
+                        .map(SgbXskbZoufang0508::getVisitId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                if (!visitIds.isEmpty()) {
+                    List<String> existingIds = sqlHelper.getExistingIds("SGB_XSKB_ZOUFANG_0508", visitIds);
+                    Set<String> existingSet = new HashSet<>(existingIds);
+
+                    List<SgbXskbZoufang0508> toInsert = entities.stream()
+                            .filter(e -> e.getVisitId() != null && !existingSet.contains(e.getVisitId()))
+                            .collect(Collectors.toList());
+
+                    List<SgbXskbZoufang0508> toUpdate = entities.stream()
+                            .filter(e -> e.getVisitId() != null && existingSet.contains(e.getVisitId()))
+                            .collect(Collectors.toList());
+
+                    try (Connection conn = dataSource.getConnection()) {
+                        if (!toInsert.isEmpty()) {
+                            jdbcBatchInserter.insertSgbZoufangBatch(conn, toInsert, BATCH_SIZE);
+                            inserted += toInsert.size();
+                        }
+                        if (!toUpdate.isEmpty()) {
+                            jdbcBatchInserter.updateSgbZoufangBatch(conn, toUpdate, BATCH_SIZE);
+                            updated += toUpdate.size();
+                        }
+                    }
+                }
+
+                total += batch.size();
+
+                if (total % 20000 == 0) {
+                    log.info("已处理 {} 条，已插入 {} 条，已更新 {} 条", total, inserted, updated);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("同步失败", e);
+        } finally {
+            sqlHelper.closeCursor();
+        }
+
+        log.info("同步完成，总读取 {} 条，成功插入 {} 条，成功更新 {} 条，耗时 {} 秒",
+                total, inserted, updated, (System.currentTimeMillis() - start) / 1000);
+    }
+
+    private SgbXskbShenhe0508 convertToSgbShenhe(SgbXskbShenheOrigin source) {
+        SgbXskbShenhe0508 target = new SgbXskbShenhe0508();
+        target.setCreUserId(clean(source.getCreUserId()));
+        target.setHandleUserId(clean(source.getHandleUserId()));
+        target.setOpUserId(clean(source.getOpUserId()));
+        target.setOpUserName(clean(source.getOpUserName()));
+        target.setCreUserName(clean(source.getCreUserName()));
+        target.setHandleStatus(clean(source.getHandleStatus()));
+        target.setProblemId(clean(source.getProblemId()));
+        target.setHandleRoleId(clean(source.getHandleRoleId()));
+        target.setJhptDelete(clean(source.getJhptDelete()));
+        target.setDataUpdateTime(clean(source.getDataUpdateTime()));
+        target.setIsSyncVisit(clean(source.getIsSyncVisit()));
+        target.setHandlePic(clean(source.getHandlePic()));
+        target.setNodeName(clean(source.getNodeName()));
+        target.setJhptUpdateTime(clean(source.getJhptUpdateTime()));
+        target.setHandleId(clean(source.getHandleId()));
+        target.setHandleContent(clean(source.getHandleContent()));
+        target.setOpTime(parseDate(source.getOpTime()));
+        target.setDeptId(clean(source.getDeptId()));
+        target.setHandleType(clean(source.getHandleType()));
+        target.setCreTime(parseDate(source.getCreTime()));
+        target.setDsjzxTaskid(clean(source.getDsjzxTaskid()));
+        return target;
+    }
+
+    private SgbXskbZoufang0508 convertToSgbZoufang(SgbXskbZoufangOrigin source) {
+        SgbXskbZoufang0508 target = new SgbXskbZoufang0508();
+        target.setCreTime(parseDate(source.getCreTime()));
+        target.setDataUpdateTime(clean(source.getDataUpdateTime()));
+        target.setJhptDelete(clean(source.getJhptDelete()));
+        target.setCreUserId(clean(source.getCreUserId()));
+        target.setDeptId(clean(source.getDeptId()));
+        target.setVisitSatisfaction(clean(source.getVisitSatisfaction()));
+        target.setProblemId(clean(source.getProblemId()));
+        target.setVisitId(clean(source.getVisitId()));
+        target.setJhptUpdateTime(clean(source.getJhptUpdateTime()));
+        target.setVisitRemark(clean(source.getVisitRemark()));
+        target.setCreUserName(clean(source.getCreUserName()));
+        target.setDsjzxTaskid(clean(source.getDsjzxTaskid()));
+        return target;
+    }
+
+    private void fillGridInfo(Connection conn, List<SgbXskbShenqing0508> entities) throws SQLException {
+        if (entities == null || entities.isEmpty()) return;
+
+        StringBuilder jwIds = new StringBuilder();
+        StringBuilder gridCodes = new StringBuilder();
+        Set<String> jwIdSet = new HashSet<>();
+        Set<String> gridCodeSet = new HashSet<>();
+
+        for (SgbXskbShenqing0508 entity : entities) {
+            if (entity.getJwId() != null && !entity.getJwId().isEmpty()) {
+                jwIdSet.add(entity.getJwId());
+            }
+            if (entity.getGridCode() != null && !entity.getGridCode().isEmpty()) {
+                gridCodeSet.add(entity.getGridCode());
+            }
+        }
+
+        Map<String, String> jwIdToGridCode = new HashMap<>();
+        if (!jwIdSet.isEmpty()) {
+            String sql = "SELECT jczl_cunju_code, grid_code FROM \"dwd_mz_jczl_cunju_accord\" WHERE jczl_cunju_code IN (";
+            for (int i = 0; i < jwIdSet.size(); i++) {
+                if (i > 0) sql += ",";
+                sql += "?";
+            }
+            sql += ")";
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                int idx = 1;
+                for (String jwId : jwIdSet) {
+                    ps.setString(idx++, jwId);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        jwIdToGridCode.put(rs.getString("jczl_cunju_code"), rs.getString("grid_code"));
+                    }
+                }
+            }
+        }
+
+        Map<String, GridInfo> gridInfoMap = new HashMap<>();
+        Set<String> allGridCodes = new HashSet<>(gridCodeSet);
+        allGridCodes.addAll(jwIdToGridCode.values());
+        
+        if (!allGridCodes.isEmpty()) {
+            String sql = "SELECT \"网格编码\", \"网格名称\", \"area_code\", \"所属区县\", \"所属街道\" FROM \"全市综合网格_new\" WHERE \"网格编码\" IN (";
+            for (int i = 0; i < allGridCodes.size(); i++) {
+                if (i > 0) sql += ",";
+                sql += "?";
+            }
+            sql += ")";
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                int idx = 1;
+                for (String gridCode : allGridCodes) {
+                    ps.setString(idx++, gridCode);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        GridInfo info = new GridInfo();
+                        info.gridName = rs.getString("网格名称");
+                        info.areaCode = rs.getString("area_code");
+                        info.areaName = rs.getString("所属区县");
+                        info.streetName = rs.getString("所属街道");
+                        gridInfoMap.put(rs.getString("网格编码"), info);
+                    }
+                }
+            }
+        }
+
+        for (SgbXskbShenqing0508 entity : entities) {
+            String gridCode = entity.getGridCode();
+            if (gridCode == null || gridCode.isEmpty()) {
+                gridCode = jwIdToGridCode.get(entity.getJwId());
+            }
+            entity.setGridCode(gridCode);
+
+            GridInfo info = gridInfoMap.get(gridCode);
+            if (info != null) {
+                entity.setGridName(info.gridName);
+                entity.setAreaCode(info.areaCode);
+                entity.setAreaName(info.areaName);
+                entity.setStreetName(info.streetName);
+            }
+        }
+    }
+
+    private static class GridInfo {
+        String gridName;
+        String areaCode;
+        String areaName;
+        String streetName;
+    }
 }

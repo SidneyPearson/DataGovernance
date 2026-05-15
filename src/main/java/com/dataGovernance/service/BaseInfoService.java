@@ -18,4 +18,25 @@ public interface BaseInfoService extends IService<Rxb12345Gongdan06> {
      */
     void syncTousuToSWB(boolean firstInsert);
 
+    /**
+     * 从数据治理部同步SGB_XSKB_SHENHE表到目标库
+     * 
+     * 根据目标表是否有数据自动判断首次/增量同步
+     */
+    void syncSgbShenheFromDataProcess();
+
+    /**
+     * 从数据治理部同步SGB_XSKB_SHENQING表到目标库
+     * 
+     * 根据目标表是否有数据自动判断首次/增量同步
+     */
+    void syncSgbShenqingFromDataProcess();
+
+    /**
+     * 从数据治理部同步SGB_XSKB_ZOUFANG表到目标库
+     * 
+     * 根据目标表是否有数据自动判断首次/增量同步
+     */
+    void syncSgbZoufangFromDataProcess();
+
 }

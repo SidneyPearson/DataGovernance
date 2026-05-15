@@ -6,7 +6,7 @@ import java.util.Arrays;
 
 @Getter
 public enum DistrictEnum {
-    DSJZX("数据治理部","dsjzx", "dsjzx", "Dsjzx@2024"),
+    DSJZX("大数据库中心","dsjzx", "dsjzx", "Dsjzx@2024"),
     DATA_PROCESS("数据治理部","shujuzhilibu", "shujuzhilibu", "hE1Eezt0k@NSkGKS"),
     PUDONG("浦东新区","pudong_dsj", "pudong_dsj", "Pudong_dsj@2024"),
     HUANGPU("黄浦区","huangpuqu", "huangpuqu", "Huangpuqu@2024"),

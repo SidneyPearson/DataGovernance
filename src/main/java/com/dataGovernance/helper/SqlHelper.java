@@ -1,6 +1,10 @@
 package com.dataGovernance.helper;
 
+import com.dataGovernance.domain.entity.SgbXskbShenqing0508;
 import com.dataGovernance.domain.entity.origin.DwdAjWgajInfo;
+import com.dataGovernance.domain.entity.origin.SgbXskbShenheOrigin;
+
+import com.dataGovernance.domain.entity.origin.SgbXskbZoufangOrigin;
 import com.dataGovernance.domain.entity.origin.SourceObj;
 import com.dataGovernance.domain.enums.DistrictEnum;
 import com.dataGovernance.utils.DBConnectionUtils;
@@ -8,6 +12,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,12 +25,15 @@ import java.util.List;
 public class SqlHelper {
 
     private final DataSource rdjcDataSource;
+    private final DataSource dataSource;
 
     private Connection cursorConn;
     private boolean cursorOpened = false;
+    private String currentCursorName = null;
 
-    public SqlHelper(DataSource rdjcDataSource) {
+    public SqlHelper(DataSource rdjcDataSource, DataSource dataSource) {
         this.rdjcDataSource = rdjcDataSource;
+        this.dataSource = dataSource;
     }
 
     /**
@@ -335,17 +346,351 @@ public class SqlHelper {
 
 
 
+    public void openSgbShenheCursor() throws SQLException {
+        if (cursorOpened) return;
+
+        cursorConn = DBConnectionUtils.getRDJCConnection(
+                DistrictEnum.DATA_PROCESS.getUsername(),
+                DistrictEnum.DATA_PROCESS.getPassword(),
+                DistrictEnum.DATA_PROCESS.getSchema());
+        cursorConn.setAutoCommit(false);
+
+        StringBuilder sqlBuilder = new StringBuilder();
+        
+        String maxTaskId = getMaxTaskIdFromSgbTarget("SGB_XSKB_SHENHE_0508");
+        boolean isFirstInsert = (maxTaskId == null || maxTaskId.isEmpty());
+        
+        if (isFirstInsert) {
+            // 首次同步：使用窗口函数去重，每个HANDLE_ID取DSJZX_TASKID最大的一条
+            sqlBuilder.append("DECLARE sgb_shenhe_cursor CURSOR FOR ");
+            sqlBuilder.append("WITH ranked_data AS (SELECT *, ROW_NUMBER() OVER(PARTITION BY HANDLE_ID ORDER BY DSJZX_TASKID DESC) AS rn FROM SGB_XSKB_SHENHE_0508 A WHERE A.JHPT_DELETE = '0' AND A.HANDLE_ID IS NOT NULL) ");
+            sqlBuilder.append("SELECT * FROM ranked_data WHERE rn = 1 ORDER BY DSJZX_TASKID");
+        } else {
+            // 增量同步：按DSJZX_TASKID过滤
+            sqlBuilder.append("DECLARE sgb_shenhe_cursor CURSOR FOR SELECT * FROM SGB_XSKB_SHENHE_0508 A ");
+            sqlBuilder.append("WHERE A.JHPT_DELETE = '0' AND A.HANDLE_ID IS NOT NULL ");
+            sqlBuilder.append("AND A.DSJZX_TASKID > '").append(maxTaskId).append("' ORDER BY DSJZX_TASKID");
+            log.info("使用审核表最大DSJZX_TASKID作为过滤条件: {}", maxTaskId);
+        }
+
+        try (Statement st = cursorConn.createStatement()) {
+            st.execute("BEGIN");
+            st.execute(sqlBuilder.toString());
+        }
+
+        cursorOpened = true;
+        currentCursorName = "sgb_shenhe_cursor";
+        log.info("游标 sgb_shenhe_cursor 已开启（首次插入: {}）", isFirstInsert);
+    }
+
+    public void openSgbShenqingCursor() throws SQLException {
+        if (cursorOpened) return;
+
+        cursorConn = DBConnectionUtils.getRDJCConnection(
+                DistrictEnum.DATA_PROCESS.getUsername(),
+                DistrictEnum.DATA_PROCESS.getPassword(),
+                DistrictEnum.DATA_PROCESS.getSchema());
+        cursorConn.setAutoCommit(false);
+
+        StringBuilder sqlBuilder = new StringBuilder();
+        
+        String maxTaskId = getMaxTaskIdFromSgbTarget("SGB_XSKB_SHENQING_0508");
+        boolean isFirstInsert = (maxTaskId == null || maxTaskId.isEmpty());
+        
+        if (isFirstInsert) {
+            // 首次同步：使用窗口函数去重，每个PROBLEM_ID取DSJZX_TASKID最大的一条
+            sqlBuilder.append("DECLARE sgb_shenqing_cursor CURSOR FOR ");
+            sqlBuilder.append("WITH ranked_data AS (SELECT *, ROW_NUMBER() OVER(PARTITION BY PROBLEM_ID ORDER BY DSJZX_TASKID DESC) AS rn FROM SGB_XSKB_SHENQING_0508 A WHERE A.JHPT_DELETE = '0' AND A.PROBLEM_ID IS NOT NULL) ");
+            sqlBuilder.append("SELECT * FROM ranked_data WHERE rn = 1 ORDER BY DSJZX_TASKID");
+        } else {
+            // 增量同步：按DSJZX_TASKID过滤
+            sqlBuilder.append("DECLARE sgb_shenqing_cursor CURSOR FOR SELECT * FROM SGB_XSKB_SHENQING_0508 A ");
+            sqlBuilder.append("WHERE A.JHPT_DELETE = '0' AND A.PROBLEM_ID IS NOT NULL ");
+            sqlBuilder.append("AND A.DSJZX_TASKID > '").append(maxTaskId).append("' ORDER BY DSJZX_TASKID");
+            log.info("使用申请表最大DSJZX_TASKID作为过滤条件: {}", maxTaskId);
+        }
+
+        try (Statement st = cursorConn.createStatement()) {
+            st.execute("BEGIN");
+            st.execute(sqlBuilder.toString());
+        }
+
+        cursorOpened = true;
+        currentCursorName = "sgb_shenqing_cursor";
+        log.info("游标 sgb_shenqing_cursor 已开启（首次插入: {}）", isFirstInsert);
+    }
+
+    public void openSgbZoufangCursor() throws SQLException {
+        if (cursorOpened) return;
+
+        cursorConn = DBConnectionUtils.getRDJCConnection(
+                DistrictEnum.DATA_PROCESS.getUsername(),
+                DistrictEnum.DATA_PROCESS.getPassword(),
+                DistrictEnum.DATA_PROCESS.getSchema());
+        cursorConn.setAutoCommit(false);
+
+        StringBuilder sqlBuilder = new StringBuilder();
+        
+        String maxTaskId = getMaxTaskIdFromSgbTarget("SGB_XSKB_ZOUFANG_0508");
+        boolean isFirstInsert = (maxTaskId == null || maxTaskId.isEmpty());
+        
+        if (isFirstInsert) {
+            // 首次同步：使用窗口函数去重，每个VISIT_ID取DSJZX_TASKID最大的一条
+            sqlBuilder.append("DECLARE sgb_zoufang_cursor CURSOR FOR ");
+            sqlBuilder.append("WITH ranked_data AS (SELECT *, ROW_NUMBER() OVER(PARTITION BY VISIT_ID ORDER BY DSJZX_TASKID DESC) AS rn FROM SGB_XSKB_ZOUFANG_0508 A WHERE A.JHPT_DELETE = '0' AND A.VISIT_ID IS NOT NULL) ");
+            sqlBuilder.append("SELECT * FROM ranked_data WHERE rn = 1 ORDER BY DSJZX_TASKID");
+        } else {
+            // 增量同步：按DSJZX_TASKID过滤
+            sqlBuilder.append("DECLARE sgb_zoufang_cursor CURSOR FOR SELECT * FROM SGB_XSKB_ZOUFANG_0508 A ");
+            sqlBuilder.append("WHERE A.JHPT_DELETE = '0' AND A.VISIT_ID IS NOT NULL ");
+            sqlBuilder.append("AND A.DSJZX_TASKID > '").append(maxTaskId).append("' ORDER BY DSJZX_TASKID");
+            log.info("使用走访表最大DSJZX_TASKID作为过滤条件: {}", maxTaskId);
+        }
+
+        try (Statement st = cursorConn.createStatement()) {
+            st.execute("BEGIN");
+            st.execute(sqlBuilder.toString());
+        }
+
+        cursorOpened = true;
+        currentCursorName = "sgb_zoufang_cursor";
+        log.info("游标 sgb_zoufang_cursor 已开启（首次插入: {}）", isFirstInsert);
+    }
+
+    private String getMaxTaskIdFromSgbTarget(String targetTable) {
+        String sql = "SELECT MAX(\"DSJZX_TASKID\") FROM \"" + targetTable + "\"";
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+
+            if (rs.next()) {
+                String maxTaskId = rs.getString(1);
+                log.info("{} 最大 DSJZX_TASKID: {}", targetTable, maxTaskId);
+                return maxTaskId;
+            }
+
+        } catch (Exception e) {
+            log.error("查询 {} 最大 DSJZX_TASKID 失败", targetTable, e);
+        }
+        return null;
+    }
+
+    public long countSgbRows(String sourceTable) {
+        StringBuilder sql = new StringBuilder();
+        String idColumn = "";
+        String targetTable = "";
+        if (sourceTable.equals("SGB_XSKB_SHENHE_0508")) {
+            idColumn = "HANDLE_ID";
+            targetTable = "SGB_XSKB_SHENHE_0508";
+        } else if (sourceTable.equals("SGB_XSKB_SHENQING_0508")) {
+            idColumn = "PROBLEM_ID";
+            targetTable = "SGB_XSKB_SHENQING_0508";
+        } else if (sourceTable.equals("SGB_XSKB_ZOUFANG_0508")) {
+            idColumn = "VISIT_ID";
+            targetTable = "SGB_XSKB_ZOUFANG_0508";
+        }
+
+        String maxTaskId = getMaxTaskIdFromSgbTarget(targetTable);
+        boolean isFirstInsert = (maxTaskId == null || maxTaskId.isEmpty());
+        
+        if (isFirstInsert) {
+            // 首次同步：统计去重后的数量
+            sql.append("SELECT COUNT(*) FROM (SELECT DISTINCT ON(").append(idColumn).append(") * FROM ").append(sourceTable).append(" A ");
+            sql.append("WHERE A.JHPT_DELETE = '0' AND A.").append(idColumn).append(" IS NOT NULL ");
+            sql.append("ORDER BY ").append(idColumn).append(", A.DSJZX_TASKID DESC) AS t");
+        } else {
+            // 增量同步：按DSJZX_TASKID过滤
+            sql.append("SELECT COUNT(*) FROM ").append(sourceTable).append(" A ");
+            sql.append("WHERE A.JHPT_DELETE = '0' AND A.").append(idColumn).append(" IS NOT NULL ");
+            sql.append("AND A.DSJZX_TASKID > '").append(maxTaskId).append("'");
+        }
+
+        try (Connection conn = DBConnectionUtils.getRDJCConnection(
+                DistrictEnum.DATA_PROCESS.getUsername(),
+                DistrictEnum.DATA_PROCESS.getPassword(),
+                DistrictEnum.DATA_PROCESS.getSchema());
+             PreparedStatement ps = conn.prepareStatement(sql.toString());
+             ResultSet rs = ps.executeQuery()) {
+
+            if (rs.next()) return rs.getLong(1);
+
+        } catch (Exception e) {
+            log.error("统计SGB表数据量失败", e);
+        }
+        return 0;
+    }
+
+    public List<String> getExistingIds(String targetTable, List<String> ids) throws SQLException {
+        String idColumn = "";
+        if (targetTable.equals("SGB_XSKB_SHENHE_0508")) {
+            idColumn = "HANDLE_ID";
+        } else if (targetTable.equals("SGB_XSKB_SHENQING_0508")) {
+            idColumn = "PROBLEM_ID";
+        } else if (targetTable.equals("SGB_XSKB_ZOUFANG_0508")) {
+            idColumn = "VISIT_ID";
+        } else {
+            return new ArrayList<>();
+        }
+
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT \"").append(idColumn).append("\" FROM \"").append(targetTable).append("\" ");
+        sql.append("WHERE \"").append(idColumn).append("\" IN (");
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) sql.append(",");
+            sql.append("?");
+        }
+        sql.append(")");
+
+        List<String> existingIds = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+
+            for (int i = 0; i < ids.size(); i++) {
+                ps.setString(i + 1, ids.get(i));
+            }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    existingIds.add(rs.getString(1));
+                }
+            }
+        }
+
+        return existingIds;
+    }
+
+    public List<SgbXskbShenheOrigin> fetchSgbShenhePage(int pageSize) throws SQLException {
+        if (!cursorOpened) {
+            throw new IllegalStateException("Cursor not opened!");
+        }
+
+        List<SgbXskbShenheOrigin> list = new ArrayList<>();
+        String fetchSql = "FETCH " + pageSize + " FROM sgb_shenhe_cursor";
+
+        try (PreparedStatement ps = cursorConn.prepareStatement(fetchSql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                SgbXskbShenheOrigin obj = new SgbXskbShenheOrigin();
+                obj.setCreUserId(rs.getString("CRE_USER_ID"));
+                obj.setHandleUserId(rs.getString("HANDLE_USER_ID"));
+                obj.setOpUserId(rs.getString("OP_USER_ID"));
+                obj.setOpUserName(rs.getString("OP_USER_NAME"));
+                obj.setCreUserName(rs.getString("CRE_USER_NAME"));
+                obj.setHandleStatus(rs.getString("HANDLE_STATUS"));
+                obj.setProblemId(rs.getString("PROBLEM_ID"));
+                obj.setHandleRoleId(rs.getString("HANDLE_ROLE_ID"));
+                obj.setJhptDelete(rs.getString("JHPT_DELETE"));
+                obj.setDataUpdateTime(rs.getString("DATA_UPDATE_TIME"));
+                obj.setIsSyncVisit(rs.getString("IS_SYNC_VISIT"));
+                obj.setHandlePic(rs.getString("HANDLE_PIC"));
+                obj.setNodeName(rs.getString("NODE_NAME"));
+                obj.setJhptUpdateTime(rs.getString("JHPT_UPDATE_TIME"));
+                obj.setHandleId(rs.getString("HANDLE_ID"));
+                obj.setHandleContent(rs.getString("HANDLE_CONTENT"));
+                obj.setOpTime(rs.getString("OP_TIME"));
+                obj.setDeptId(rs.getString("DEPT_ID"));
+                obj.setHandleType(rs.getString("HANDLE_TYPE"));
+                obj.setCreTime(rs.getString("CRE_TIME"));
+                obj.setDsjzxTaskid(rs.getString("DSJZX_TASKID"));
+                list.add(obj);
+            }
+        }
+
+        return list;
+    }
+
+    public List<SgbXskbShenqing0508> fetchSgbShenqingPage(int pageSize) throws SQLException {
+        if (!cursorOpened) {
+            throw new IllegalStateException("Cursor not opened!");
+        }
+
+        List<SgbXskbShenqing0508> list = new ArrayList<>();
+        String fetchSql = "FETCH " + pageSize + " FROM sgb_shenqing_cursor";
+
+        try (PreparedStatement ps = cursorConn.prepareStatement(fetchSql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                SgbXskbShenqing0508 obj = new SgbXskbShenqing0508();
+                obj.setOpUserName(clean(rs.getString("OP_USER_NAME")));
+                obj.setJhptDelete(clean(rs.getString("JHPT_DELETE")));
+                obj.setProblemImg(clean(rs.getString("PROBLEM_IMG")));
+                obj.setJhptUpdateTime(clean(rs.getString("JHPT_UPDATE_TIME")));
+                obj.setOpTime(parseDate(rs.getString("OP_TIME")));
+                obj.setPersonPhone(clean(rs.getString("PERSON_PHONE")));
+                obj.setProblemTime(parseDate(rs.getString("PROBLEM_TIME")));
+                obj.setProblemStatus(clean(rs.getString("PROBLEM_STATUS")));
+                String visitCountStr = rs.getString("VISIT_COUNT");
+                obj.setVisitCount(visitCountStr != null ? Integer.parseInt(visitCountStr) : null);
+                obj.setProblemId(clean(rs.getString("PROBLEM_ID")));
+                obj.setJwId(clean(rs.getString("JW_ID")));
+                obj.setDataUpdateTime(clean(rs.getString("DATA_UPDATE_TIME")));
+                obj.setProblemDescription(clean(rs.getString("PROBLEM_DESCRIPTION")));
+                obj.setProblemAddress(clean(rs.getString("PROBLEM_ADDRESS")));
+                obj.setProblemTags(clean(rs.getString("PROBLEM_TAGS")));
+                obj.setPersonName(clean(rs.getString("PERSON_NAME")));
+                obj.setCompletedTime(parseDate(rs.getString("COMPLETED_TIME")));
+                obj.setOpUserId(clean(rs.getString("OP_USER_ID")));
+                obj.setProblemType(clean(rs.getString("PROBLEM_TYPE")));
+                obj.setLastVisitTime(parseDate(rs.getString("LAST_VISIT_TIME")));
+                obj.setPersonId(clean(rs.getString("PERSON_ID")));
+                obj.setDsjzxTaskid(clean(rs.getString("DSJZX_TASKID")));
+                obj.setUpdateTime(new java.util.Date());
+                
+                list.add(obj);
+            }
+        }
+
+        return list;
+    }
+
+    public List<SgbXskbZoufangOrigin> fetchSgbZoufangPage(int pageSize) throws SQLException {
+        if (!cursorOpened) {
+            throw new IllegalStateException("Cursor not opened!");
+        }
+
+        List<SgbXskbZoufangOrigin> list = new ArrayList<>();
+        String fetchSql = "FETCH " + pageSize + " FROM sgb_zoufang_cursor";
+
+        try (PreparedStatement ps = cursorConn.prepareStatement(fetchSql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                SgbXskbZoufangOrigin obj = new SgbXskbZoufangOrigin();
+                obj.setCreTime(rs.getString("CRE_TIME"));
+                obj.setDataUpdateTime(rs.getString("DATA_UPDATE_TIME"));
+                obj.setJhptDelete(rs.getString("JHPT_DELETE"));
+                obj.setCreUserId(rs.getString("CRE_USER_ID"));
+                obj.setDeptId(rs.getString("DEPT_ID"));
+                obj.setVisitSatisfaction(rs.getString("VISIT_SATISFACTION"));
+                obj.setProblemId(rs.getString("PROBLEM_ID"));
+                obj.setVisitId(rs.getString("VISIT_ID"));
+                obj.setJhptUpdateTime(rs.getString("JHPT_UPDATE_TIME"));
+                obj.setVisitRemark(rs.getString("VISIT_REMARK"));
+                obj.setCreUserName(rs.getString("CRE_USER_NAME"));
+                obj.setDsjzxTaskid(rs.getString("DSJZX_TASKID"));
+                list.add(obj);
+            }
+        }
+
+        return list;
+    }
+
     /**
      * 关闭游标（迁移完成后调用）
      */
     public void closeCursor() {
         if (!cursorOpened) return;
 
+        String cursorName = currentCursorName != null ? currentCursorName : "data_cursor";
+        
         try (Statement st = cursorConn.createStatement()) {
-            st.execute("CLOSE data_cursor");
+            st.execute("CLOSE " + cursorName);
             st.execute("COMMIT");
         } catch (Exception e) {
-            log.error("关闭游标失败", e);
+            log.error("关闭游标 {} 失败", cursorName, e);
         }
 
         try {
@@ -353,6 +698,36 @@ public class SqlHelper {
         } catch (Exception ignore) {}
 
         cursorOpened = false;
-        log.info("游标 data_cursor 已关闭");
+        currentCursorName = null;
+        log.info("游标 {} 已关闭", cursorName);
+    }
+
+    private String clean(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        if (t.isEmpty() || "null".equalsIgnoreCase(t)) return null;
+        return t;
+    }
+
+    private Date parseDate(String str) {
+        if (str == null) return null;
+        str = str.trim();
+        if (str.isEmpty() || "null".equalsIgnoreCase(str)) return null;
+        
+        DateFormat[] formats = {
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"),
+                new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),
+                new SimpleDateFormat("yyyy-MM-dd"),
+                new SimpleDateFormat("yyyy/MM/dd HH:mm:ss"),
+                new SimpleDateFormat("yyyy/MM/dd")
+        };
+        
+        for (DateFormat format : formats) {
+            try {
+                return format.parse(str);
+            } catch (ParseException ignore) {}
+        }
+        
+        return null;
     }
 }

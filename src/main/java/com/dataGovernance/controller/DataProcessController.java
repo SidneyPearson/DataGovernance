@@ -114,5 +114,62 @@ public class DataProcessController extends BaseController{
         return "同步任务已触发";
     }
 
+    /**
+     * 从数据治理部同步SGB_XSKB_SHENHE表到目标库
+     * 
+     * 使用HANDLE_ID作为唯一标识，存在则更新，不存在则新增
+     * 根据目标表是否有数据自动判断首次/增量同步
+     * 
+     * @return 操作结果提示
+     *
+     */
+    @GetMapping("/syncSgbShenhe")
+    public String syncSgbShenhe() {
+        log.info("手动触发【从数据治理部同步SGB_XSKB_SHENHE表】任务，当前时间: {}", LocalDateTime.now());
+
+        baseInfoService.syncSgbShenheFromDataProcess();
+
+        log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
+        return "同步任务已触发";
+    }
+
+    /**
+     * 从数据治理部同步SGB_XSKB_SHENQING表到目标库
+     * 
+     * 使用PROBLEM_ID作为唯一标识，存在则更新，不存在则新增
+     * 根据目标表是否有数据自动判断首次/增量同步
+     * 
+     * @return 操作结果提示
+     *
+     */
+    @GetMapping("/syncSgbShenqing")
+    public String syncSgbShenqing() {
+        log.info("手动触发【从数据治理部同步SGB_XSKB_SHENQING表】任务，当前时间: {}", LocalDateTime.now());
+
+        baseInfoService.syncSgbShenqingFromDataProcess();
+
+        log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
+        return "同步任务已触发";
+    }
+
+    /**
+     * 从数据治理部同步SGB_XSKB_ZOUFANG表到目标库
+     * 
+     * 使用VISIT_ID作为唯一标识，存在则更新，不存在则新增
+     * 根据目标表是否有数据自动判断首次/增量同步
+     * 
+     * @return 操作结果提示
+     *
+     */
+    @GetMapping("/syncSgbZoufang")
+    public String syncSgbZoufang() {
+        log.info("手动触发【从数据治理部同步SGB_XSKB_ZOUFANG表】任务，当前时间: {}", LocalDateTime.now());
+
+        baseInfoService.syncSgbZoufangFromDataProcess();
+
+        log.info("任务执行完毕，当前时间: {}", LocalDateTime.now());
+        return "同步任务已触发";
+    }
+
 
 }
