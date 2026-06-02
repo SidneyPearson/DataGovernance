@@ -1,0 +1,33 @@
+:root {
+  --font-size: 16px;
+
+  --bg-base: #0B1220;
+  --bg-canvas: #0F172A;
+  --bg-surface: #142033;
+  --bg-surface-2: #1A2740;
+  --bg-elevated: #1F2D48;
+
+  --line-soft: rgba(148, 163, 184, 0.08);
+  --line-strong: rgba(148, 163, 184, 0.16);
+
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
+  --text-muted: #64748B;
+
+  --accent: #22D3EE;
+  --accent-soft: #67E8F9;
+  --accent-deep: #0E7490;
+  --positive: #34D399;
+  --warning: #FBBF24;
+  --negative: #F87171;
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}

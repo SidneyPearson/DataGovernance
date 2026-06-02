@@ -787,7 +787,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
         allGridCodes.addAll(jwIdToGridCode.values());
         
         if (!allGridCodes.isEmpty()) {
-            String sql = "SELECT \"网格编码\", \"网格名称\", \"area_code\", \"所属区县\", \"所属街道\" FROM \"全市综合网格_new\" WHERE \"网格编码\" IN (";
+            String sql = "SELECT \"网格编码\", \"网格名称\", \"area_code\", \"所属区县\", \"street_code\", \"所属街道\" FROM \"全市综合网格_new\" WHERE \"网格编码\" IN (";
             for (int i = 0; i < allGridCodes.size(); i++) {
                 if (i > 0) sql += ",";
                 sql += "?";
@@ -805,6 +805,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
                         info.gridName = rs.getString("网格名称");
                         info.areaCode = rs.getString("area_code");
                         info.areaName = rs.getString("所属区县");
+                        info.streetCode = rs.getString("street_code");
                         info.streetName = rs.getString("所属街道");
                         gridInfoMap.put(rs.getString("网格编码"), info);
                     }
@@ -824,6 +825,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
                 entity.setGridName(info.gridName);
                 entity.setAreaCode(info.areaCode);
                 entity.setAreaName(info.areaName);
+                entity.setStreetCode(info.streetCode);
                 entity.setStreetName(info.streetName);
             }
         }
@@ -832,6 +834,7 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
     private static class GridInfo {
         String gridName;
         String areaCode;
+        String streetCode;
         String areaName;
         String streetName;
     }

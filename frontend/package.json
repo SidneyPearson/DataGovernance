@@ -1,0 +1,22 @@
+{
+  "name": "dashboard-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "echarts": "5.5.1",
+    "vue": "3.5.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.12",
+    "@vitejs/plugin-vue": "5.2.1",
+    "tailwindcss": "4.1.12",
+    "tw-animate-css": "1.3.8",
+    "vite": "6.3.5",
+    "vite-plugin-compression": "^0.5.1"
+  }
+}
