@@ -629,7 +629,9 @@ public class SqlHelper {
                 obj.setDataUpdateTime(clean(rs.getString("DATA_UPDATE_TIME")));
                 obj.setProblemDescription(clean(rs.getString("PROBLEM_DESCRIPTION")));
                 obj.setProblemAddress(clean(rs.getString("PROBLEM_ADDRESS")));
-                obj.setProblemTags(clean(rs.getString("PROBLEM_TAGS")));
+                String problemTags = clean(rs.getString("PROBLEM_TAGS"));
+                obj.setProblemTags(problemTags);
+                obj.setTagName(parseTagName(problemTags));
                 obj.setPersonName(clean(rs.getString("PERSON_NAME")));
                 obj.setCompletedTime(parseDate(rs.getString("COMPLETED_TIME")));
                 obj.setOpUserId(clean(rs.getString("OP_USER_ID")));
@@ -729,5 +731,50 @@ public class SqlHelper {
         }
         
         return null;
+    }
+
+    private String parseTagName(String problemTags) {
+        if (problemTags == null || problemTags.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            String json = problemTags.trim();
+            if (!json.startsWith("[") || !json.endsWith("]")) {
+                return null;
+            }
+            
+            int startIdx = json.indexOf("\"tagName\"");
+            if (startIdx == -1) {
+                return null;
+            }
+            
+            startIdx = json.indexOf(":", startIdx);
+            if (startIdx == -1) {
+                return null;
+            }
+            
+            startIdx++;
+            while (startIdx < json.length() && (json.charAt(startIdx) == ' ' || json.charAt(startIdx) == '"')) {
+                startIdx++;
+            }
+            
+            int endIdx = json.indexOf('"', startIdx);
+            if (endIdx == -1) {
+                endIdx = json.indexOf(',', startIdx);
+                if (endIdx == -1) {
+                    endIdx = json.indexOf('}', startIdx);
+                }
+            }
+            
+            if (endIdx == -1) {
+                return null;
+            }
+            
+            return json.substring(startIdx, endIdx).trim();
+        } catch (Exception e) {
+            log.warn("解析 problemTags 获取 tagName 失败: {}", e.getMessage());
+            return null;
+        }
     }
 }

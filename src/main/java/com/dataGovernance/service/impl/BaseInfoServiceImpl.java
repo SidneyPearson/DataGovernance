@@ -700,6 +700,158 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
                 total, inserted, updated, (System.currentTimeMillis() - start) / 1000);
     }
 
+    @Override
+    public void maintainHistoryData(String tableName, boolean reParseTagName, boolean clearData, String taskIdFilter) {
+        long start = System.currentTimeMillis();
+        log.info("开始维护历史数据，表名: {}, 重新解析tagName: {}, 清空数据: {}, TaskId过滤: {}", 
+                tableName, reParseTagName, clearData, taskIdFilter);
+
+        String sourceTable = "";
+        String targetTable = "";
+        String idField = "";
+
+        switch (tableName.toUpperCase()) {
+            case "SHENQING":
+                sourceTable = "SGB_XSKB_SHENQING_0508";
+                targetTable = "SGB_XSKB_SHENQING_0508";
+                idField = "PROBLEM_ID";
+                break;
+            case "SHENHE":
+                sourceTable = "SGB_XSKB_SHENHE_0508";
+                targetTable = "SGB_XSKB_SHENHE_0508";
+                idField = "HANDLE_ID";
+                break;
+            case "ZOUFANG":
+                sourceTable = "SGB_XSKB_ZOUFANG_0508";
+                targetTable = "SGB_XSKB_ZOUFANG_0508";
+                idField = "VISIT_ID";
+                break;
+            default:
+                log.error("不支持的表名: {}", tableName);
+                return;
+        }
+
+        if (clearData) {
+            try (Connection conn = dataSource.getConnection()) {
+                String sql = "DELETE FROM \"" + targetTable + "\"";
+                if (taskIdFilter != null && !taskIdFilter.isEmpty()) {
+                    sql += " WHERE DSJZX_TASKID = '" + taskIdFilter + "'";
+                }
+                try (Statement stmt = conn.createStatement()) {
+                    int deleted = stmt.executeUpdate(sql);
+                    log.info("已清空目标表 {} 数据，删除 {} 条", targetTable, deleted);
+                }
+            } catch (SQLException e) {
+                log.error("清空目标表数据失败", e);
+                return;
+            }
+        }
+
+        if ("SHENQING".equalsIgnoreCase(tableName) && reParseTagName) {
+            maintainShenqingTagName(targetTable, taskIdFilter);
+        }
+
+        log.info("历史数据维护完成，耗时 {} 秒", (System.currentTimeMillis() - start) / 1000);
+    }
+
+    private void maintainShenqingTagName(String targetTable, String taskIdFilter) {
+        log.info("开始重新解析申请表的 tagName，表名: {}, TaskId过滤: {}", targetTable, taskIdFilter);
+        
+        long updated = 0;
+        
+        try (Connection conn = dataSource.getConnection()) {
+            String querySql = "SELECT PROBLEM_ID, PROBLEM_TAGS FROM \"" + targetTable + "\" WHERE PROBLEM_TAGS IS NOT NULL AND PROBLEM_TAGS != ''";
+            if (taskIdFilter != null && !taskIdFilter.isEmpty()) {
+                querySql += " AND DSJZX_TASKID = '" + taskIdFilter + "'";
+            }
+            
+            String updateSql = "UPDATE \"" + targetTable + "\" SET TAG_NAME = ? WHERE PROBLEM_ID = ?";
+            
+            try (PreparedStatement queryPs = conn.prepareStatement(querySql);
+                 ResultSet rs = queryPs.executeQuery();
+                 PreparedStatement updatePs = conn.prepareStatement(updateSql)) {
+                
+                conn.setAutoCommit(false);
+                int batchCount = 0;
+                
+                while (rs.next()) {
+                    String problemId = rs.getString("PROBLEM_ID");
+                    String problemTags = rs.getString("PROBLEM_TAGS");
+                    String tagName = parseTagName(problemTags);
+                    
+                    updatePs.setString(1, tagName);
+                    updatePs.setString(2, problemId);
+                    updatePs.addBatch();
+                    
+                    batchCount++;
+                    if (batchCount % BATCH_SIZE == 0) {
+                        updatePs.executeBatch();
+                        conn.commit();
+                        updated += BATCH_SIZE;
+                        log.info("已更新 {} 条记录的 tagName", updated);
+                    }
+                }
+                
+                if (batchCount % BATCH_SIZE != 0) {
+                    updatePs.executeBatch();
+                    conn.commit();
+                    updated += (batchCount % BATCH_SIZE);
+                }
+            }
+            
+            conn.setAutoCommit(true);
+        } catch (SQLException e) {
+            log.error("重新解析 tagName 失败", e);
+        }
+        
+        log.info("重新解析 tagName 完成，共更新 {} 条记录", updated);
+    }
+
+    private String parseTagName(String problemTags) {
+        if (problemTags == null || problemTags.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            String json = problemTags.trim();
+            if (!json.startsWith("[") || !json.endsWith("]")) {
+                return null;
+            }
+            
+            int startIdx = json.indexOf("\"tagName\"");
+            if (startIdx == -1) {
+                return null;
+            }
+            
+            startIdx = json.indexOf(":", startIdx);
+            if (startIdx == -1) {
+                return null;
+            }
+            
+            startIdx++;
+            while (startIdx < json.length() && (json.charAt(startIdx) == ' ' || json.charAt(startIdx) == '"')) {
+                startIdx++;
+            }
+            
+            int endIdx = json.indexOf('"', startIdx);
+            if (endIdx == -1) {
+                endIdx = json.indexOf(',', startIdx);
+                if (endIdx == -1) {
+                    endIdx = json.indexOf('}', startIdx);
+                }
+            }
+            
+            if (endIdx == -1) {
+                return null;
+            }
+            
+            return json.substring(startIdx, endIdx).trim();
+        } catch (Exception e) {
+            log.warn("解析 problemTags 获取 tagName 失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private SgbXskbShenhe0508 convertToSgbShenhe(SgbXskbShenheOrigin source) {
         SgbXskbShenhe0508 target = new SgbXskbShenhe0508();
         target.setCreUserId(clean(source.getCreUserId()));

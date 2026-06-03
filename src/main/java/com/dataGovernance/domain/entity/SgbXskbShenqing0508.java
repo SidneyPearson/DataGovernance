@@ -21,6 +21,7 @@ public class SgbXskbShenqing0508 {
     private String problemDescription;
     private String problemAddress;
     private String problemTags;
+    private String tagName;
     private String personName;
     private Date completedTime;
     private String opUserId;

@@ -171,5 +171,32 @@ public class DataProcessController extends BaseController{
         return "同步任务已触发";
     }
 
+    /**
+     * 维护历史数据接口
+     * 
+     * 支持对已同步的数据进行维护操作，如重新解析字段、清空数据等
+     * 
+     * @param tableName 表名，可选值: SHENQING(申请表), SHENHE(审核表), ZOUFANG(走访表)
+     * @param reParseTagName 是否重新解析 tagName（仅对申请表有效），默认 false
+     * @param clearData 是否先清空目标表数据，默认 false
+     * @param taskIdFilter 按 DSJZX_TASKID 过滤，为空则不限制
+     * @return 操作结果提示
+     */
+    @GetMapping("/maintainHistoryData")
+    public String maintainHistoryData(
+            @RequestParam("tableName") String tableName,
+            @RequestParam(value = "reParseTagName", defaultValue = "false") boolean reParseTagName,
+            @RequestParam(value = "clearData", defaultValue = "false") boolean clearData,
+            @RequestParam(value = "taskIdFilter", required = false) String taskIdFilter) {
+        
+        log.info("手动触发【维护历史数据】任务，表名: {}, 重新解析tagName: {}, 清空数据: {}, TaskId过滤: {}, 当前时间: {}", 
+                tableName, reParseTagName, clearData, taskIdFilter, LocalDateTime.now());
+
+        baseInfoService.maintainHistoryData(tableName, reParseTagName, clearData, taskIdFilter);
+
+        log.info("维护历史数据任务执行完毕，当前时间: {}", LocalDateTime.now());
+        return "维护历史数据任务已触发";
+    }
+
 
 }

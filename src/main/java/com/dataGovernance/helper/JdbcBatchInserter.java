@@ -451,11 +451,11 @@ public class JdbcBatchInserter {
                     "\"OP_USER_NAME\", \"JHPT_DELETE\", \"PROBLEM_IMG\", \"JHPT_UPDATE_TIME\", \"OP_TIME\", " +
                     "\"PERSON_PHONE\", \"PROBLEM_TIME\", \"PROBLEM_STATUS\", \"VISIT_COUNT\", \"PROBLEM_ID\", " +
                     "\"JW_ID\", \"DATA_UPDATE_TIME\", \"PROBLEM_DESCRIPTION\", \"PROBLEM_ADDRESS\", \"PROBLEM_TAGS\", " +
-                    "\"PERSON_NAME\", \"COMPLETED_TIME\", \"OP_USER_ID\", \"PROBLEM_TYPE\", \"LAST_VISIT_TIME\", " +
+                    "\"TAG_NAME\", \"PERSON_NAME\", \"COMPLETED_TIME\", \"OP_USER_ID\", \"PROBLEM_TYPE\", \"LAST_VISIT_TIME\", " +
                     "\"PERSON_ID\", \"DSJZX_TASKID\", \"GRID_CODE\", \"GRID_NAME\", \"AREA_CODE\", \"AREA_NAME\", " +
                     "\"STREET_CODE\", \"STREET_NAME\", \"UPDATE_TIME\"" +
                     ") VALUES (" +
-                    "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" +
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" +
                     ")";
 
     private static final String SQL_SGB_SHENQING_UPDATE =
@@ -463,7 +463,7 @@ public class JdbcBatchInserter {
                     "\"OP_USER_NAME\" = ?, \"JHPT_DELETE\" = ?, \"PROBLEM_IMG\" = ?, \"JHPT_UPDATE_TIME\" = ?, \"OP_TIME\" = ?, " +
                     "\"PERSON_PHONE\" = ?, \"PROBLEM_TIME\" = ?, \"PROBLEM_STATUS\" = ?, \"VISIT_COUNT\" = ?, " +
                     "\"JW_ID\" = ?, \"DATA_UPDATE_TIME\" = ?, \"PROBLEM_DESCRIPTION\" = ?, \"PROBLEM_ADDRESS\" = ?, \"PROBLEM_TAGS\" = ?, " +
-                    "\"PERSON_NAME\" = ?, \"COMPLETED_TIME\" = ?, \"OP_USER_ID\" = ?, \"PROBLEM_TYPE\" = ?, \"LAST_VISIT_TIME\" = ?, " +
+                    "\"TAG_NAME\" = ?, \"PERSON_NAME\" = ?, \"COMPLETED_TIME\" = ?, \"OP_USER_ID\" = ?, \"PROBLEM_TYPE\" = ?, \"LAST_VISIT_TIME\" = ?, " +
                     "\"PERSON_ID\" = ?, \"DSJZX_TASKID\" = ?, \"GRID_CODE\" = ?, \"GRID_NAME\" = ?, \"AREA_CODE\" = ?, \"AREA_NAME\" = ?, " +
                     "\"STREET_CODE\" = ?, \"STREET_NAME\" = ?, \"UPDATE_TIME\" = ? " +
                     "WHERE \"PROBLEM_ID\" = ?";
@@ -493,20 +493,21 @@ public class JdbcBatchInserter {
                 ps.setString(13, o.getProblemDescription());
                 ps.setString(14, o.getProblemAddress());
                 ps.setString(15, o.getProblemTags());
-                ps.setString(16, o.getPersonName());
-                ps.setTimestamp(17, toTs(o.getCompletedTime()));
-                ps.setString(18, o.getOpUserId());
-                ps.setString(19, o.getProblemType());
-                ps.setTimestamp(20, toTs(o.getLastVisitTime()));
-                ps.setString(21, o.getPersonId());
-                ps.setString(22, o.getDsjzxTaskid());
-                ps.setString(23, o.getGridCode());
-                ps.setString(24, o.getGridName());
-                ps.setString(25, o.getAreaCode());
-                ps.setString(26, o.getAreaName());
-                ps.setString(27, o.getStreetCode());
-                ps.setString(28, o.getStreetName());
-                ps.setTimestamp(29, toTs(o.getUpdateTime()));
+                ps.setString(16, o.getTagName());
+                ps.setString(17, o.getPersonName());
+                ps.setTimestamp(18, toTs(o.getCompletedTime()));
+                ps.setString(19, o.getOpUserId());
+                ps.setString(20, o.getProblemType());
+                ps.setTimestamp(21, toTs(o.getLastVisitTime()));
+                ps.setString(22, o.getPersonId());
+                ps.setString(23, o.getDsjzxTaskid());
+                ps.setString(24, o.getGridCode());
+                ps.setString(25, o.getGridName());
+                ps.setString(26, o.getAreaCode());
+                ps.setString(27, o.getAreaName());
+                ps.setString(28, o.getStreetCode());
+                ps.setString(29, o.getStreetName());
+                ps.setTimestamp(30, toTs(o.getUpdateTime()));
 
                 ps.addBatch();
                 count++;
@@ -553,21 +554,22 @@ public class JdbcBatchInserter {
                 ps.setString(12, o.getProblemDescription());
                 ps.setString(13, o.getProblemAddress());
                 ps.setString(14, o.getProblemTags());
-                ps.setString(15, o.getPersonName());
-                ps.setTimestamp(16, toTs(o.getCompletedTime()));
-                ps.setString(17, o.getOpUserId());
-                ps.setString(18, o.getProblemType());
-                ps.setTimestamp(19, toTs(o.getLastVisitTime()));
-                ps.setString(20, o.getPersonId());
-                ps.setString(21, o.getDsjzxTaskid());
-                ps.setString(22, o.getGridCode());
-                ps.setString(23, o.getGridName());
-                ps.setString(24, o.getAreaCode());
-                ps.setString(25, o.getAreaName());
-                ps.setString(26, o.getStreetCode());
-                ps.setString(27, o.getStreetName());
-                ps.setTimestamp(28, toTs(o.getUpdateTime()));
-                ps.setString(29, o.getProblemId());
+                ps.setString(15, o.getTagName());
+                ps.setString(16, o.getPersonName());
+                ps.setTimestamp(17, toTs(o.getCompletedTime()));
+                ps.setString(18, o.getOpUserId());
+                ps.setString(19, o.getProblemType());
+                ps.setTimestamp(20, toTs(o.getLastVisitTime()));
+                ps.setString(21, o.getPersonId());
+                ps.setString(22, o.getDsjzxTaskid());
+                ps.setString(23, o.getGridCode());
+                ps.setString(24, o.getGridName());
+                ps.setString(25, o.getAreaCode());
+                ps.setString(26, o.getAreaName());
+                ps.setString(27, o.getStreetCode());
+                ps.setString(28, o.getStreetName());
+                ps.setTimestamp(29, toTs(o.getUpdateTime()));
+                ps.setString(30, o.getProblemId());
 
                 ps.addBatch();
                 count++;

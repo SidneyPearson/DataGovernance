@@ -33,6 +33,16 @@ public interface BaseInfoService extends IService<Rxb12345Gongdan06> {
     void syncSgbShenqingFromDataProcess();
 
     /**
+     * 维护历史数据
+     * 
+     * @param tableName 表名（SHENQING, SHENHE, ZOUFANG）
+     * @param reParseTagName 是否重新解析 tagName（仅对申请表有效）
+     * @param clearData 是否先清空目标表数据
+     * @param taskIdFilter 按 DSJZX_TASKID 过滤（为空则不限制）
+     */
+    void maintainHistoryData(String tableName, boolean reParseTagName, boolean clearData, String taskIdFilter);
+
+    /**
      * 从数据治理部同步SGB_XSKB_ZOUFANG表到目标库
      * 
      * 根据目标表是否有数据自动判断首次/增量同步
