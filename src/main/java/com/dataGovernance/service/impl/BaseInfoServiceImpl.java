@@ -818,34 +818,53 @@ public class BaseInfoServiceImpl extends ServiceImpl<BaseInfoMapper, Rxb12345Gon
                 return null;
             }
             
-            int startIdx = json.indexOf("\"tagName\"");
-            if (startIdx == -1) {
-                return null;
-            }
+            java.util.List<String> tagNames = new java.util.ArrayList<>();
+            int currentIdx = 0;
             
-            startIdx = json.indexOf(":", startIdx);
-            if (startIdx == -1) {
-                return null;
-            }
-            
-            startIdx++;
-            while (startIdx < json.length() && (json.charAt(startIdx) == ' ' || json.charAt(startIdx) == '"')) {
-                startIdx++;
-            }
-            
-            int endIdx = json.indexOf('"', startIdx);
-            if (endIdx == -1) {
-                endIdx = json.indexOf(',', startIdx);
-                if (endIdx == -1) {
-                    endIdx = json.indexOf('}', startIdx);
+            while (true) {
+                int tagNameIdx = json.indexOf("\"tagName\"", currentIdx);
+                if (tagNameIdx == -1) {
+                    break;
+                }
+                
+                int colonIdx = json.indexOf(":", tagNameIdx);
+                if (colonIdx == -1) {
+                    break;
+                }
+                
+                int valueStart = colonIdx + 1;
+                while (valueStart < json.length() && (json.charAt(valueStart) == ' ' || json.charAt(valueStart) == '"')) {
+                    valueStart++;
+                }
+                
+                int valueEnd = json.indexOf('"', valueStart);
+                if (valueEnd == -1) {
+                    valueEnd = json.indexOf(',', valueStart);
+                    if (valueEnd == -1) {
+                        valueEnd = json.indexOf('}', valueStart);
+                    }
+                }
+                
+                if (valueEnd == -1) {
+                    break;
+                }
+                
+                String tagName = json.substring(valueStart, valueEnd).trim();
+                if (tagName != null && !tagName.isEmpty()) {
+                    tagNames.add(tagName);
+                }
+                
+                currentIdx = valueEnd + 1;
+                if (currentIdx >= json.length()) {
+                    break;
                 }
             }
             
-            if (endIdx == -1) {
+            if (tagNames.isEmpty()) {
                 return null;
             }
             
-            return json.substring(startIdx, endIdx).trim();
+            return String.join("|", tagNames);
         } catch (Exception e) {
             log.warn("解析 problemTags 获取 tagName 失败: {}", e.getMessage());
             return null;
